@@ -2,6 +2,10 @@
 
 use Glpi\DBAL\QueryExpression;
 
+if (!class_exists(QueryExpression::class) && class_exists('\QueryExpression')) {
+    class_alias('\QueryExpression', QueryExpression::class);
+}
+
 class PluginCreditalertConsumption extends CommonDBTM
 {
     public static $rightname = PluginCreditalertProfile::RIGHTNAME;
@@ -361,20 +365,7 @@ JS;
 
             /** @var array $CFG_GLPI */
             global $CFG_GLPI;
-            $input = $ma->getInput();
-            $redirect = '';
-            if (!empty($input['redirect'])) {
-                $redirect = URL::sanitizeURL((string) $input['redirect']);
-            }
-            if (empty($redirect)) {
-                $redirect = Html::getBackUrl();
-            }
-            if (empty($redirect)) {
-                $redirect = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php?view=consumptions';
-            }
-            $separator = (strpos($redirect, '?') !== false) ? '&' : '?';
-            $redirect .= $separator . Toolbox::append_params(['creditalert_export' => 1]);
-            $ma->setRedirect($redirect);
+            $ma->setRedirect($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/consumptions.export.php');
             return;
         }
 
