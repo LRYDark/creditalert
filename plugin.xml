@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://plugins.glpi-project.org/plugins/plugin.xsd">
+  <name>creditalert</name>
+  <display>Credit Alert</display>
+  <version>1.0.0</version>
+  <author>CreditAlert</author>
+  <homepage>https://github.com/pluginsGLPI/creditalert</homepage>
+  <license>GPLv3</license>
+  <minGlpiVersion>11.0.0</minGlpiVersion>
+  <maxGlpiVersion>11.0.99</maxGlpiVersion>
+</plugin>
