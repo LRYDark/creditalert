@@ -55,7 +55,7 @@ class PluginCreditalertCreditSummary extends CommonDBTM
             'id'       => $baseId + 1,
             'table'    => self::getTable(),
             'field'    => 'client_label',
-            'name'     => __('Client / Libelle', 'creditalert'),
+            'name'     => __('Crédit / Libelle', 'creditalert'),
             'datatype' => 'text',
             'itemtype' => $itemtype,
         ];
