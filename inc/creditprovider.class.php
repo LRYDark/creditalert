@@ -2,10 +2,6 @@
 
 use Glpi\DBAL\QueryExpression;
 
-if (!class_exists(QueryExpression::class) && class_exists('\QueryExpression')) {
-    class_alias('\QueryExpression', QueryExpression::class);
-}
-
 class PluginCreditalertCreditProvider
 {
     private array $config;

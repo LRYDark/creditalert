@@ -42,6 +42,9 @@ class PluginCreditalertInstall
                     `field_ticket` varchar(255) NOT NULL DEFAULT 'tickets_id',
                     `color_warning` varchar(20) NOT NULL DEFAULT '#f7c77d',
                     `color_over` varchar(20) NOT NULL DEFAULT '#f2958a',
+                    `export_filename_base` varchar(255) NOT NULL DEFAULT 'Export_Client_Glpi',
+                    `export_filename_include_date` tinyint NOT NULL DEFAULT '0',
+                    `export_filename_include_entity` tinyint NOT NULL DEFAULT '0',
                     `last_cache_build` timestamp NULL DEFAULT NULL,
                     PRIMARY KEY (`id`)
                 ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC;
@@ -58,6 +61,15 @@ SQL;
         } else {
             if (!$DB->fieldExists($configTable, 'field_ticket')) {
                 $migration->addField($configTable, 'field_ticket', 'string', ['after' => 'field_is_active', 'value' => 'tickets_id']);
+            }
+            if (!$DB->fieldExists($configTable, 'export_filename_base')) {
+                $migration->addField($configTable, 'export_filename_base', 'string', ['value' => 'Export_Client_Glpi']);
+            }
+            if (!$DB->fieldExists($configTable, 'export_filename_include_date')) {
+                $migration->addField($configTable, 'export_filename_include_date', 'bool', ['value' => 0]);
+            }
+            if (!$DB->fieldExists($configTable, 'export_filename_include_entity')) {
+                $migration->addField($configTable, 'export_filename_include_entity', 'bool', ['value' => 0]);
             }
         }
 
@@ -103,9 +115,15 @@ SQL;
         }
 
         if (class_exists('CronTask')) {
+            if ($DB->tableExists('glpi_crontasks')) {
+                $DB->delete('glpi_crontasks', [
+                    'itemtype' => PluginCreditalertAlertTask::class,
+                    'name'     => 'cronCreditalert',
+                ]);
+            }
             CronTask::register(
                 PluginCreditalertAlertTask::class,
-                'cronCreditalert',
+                'creditalert',
                 HOUR_TIMESTAMP,
                 [
                     'comment' => __('Scan credits and notify when thresholds are reached', 'creditalert'),

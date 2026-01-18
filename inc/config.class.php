@@ -33,6 +33,9 @@ class PluginCreditalertConfig extends CommonDBTM
             'field_ticket'       => 'tickets_id',
             'color_warning'      => '#f7c77d',
             'color_over'         => '#f2958a',
+            'export_filename_base'          => 'Export_Client_Glpi',
+            'export_filename_include_date'  => 0,
+            'export_filename_include_entity'=> 0,
         ];
     }
 
@@ -161,6 +164,11 @@ class PluginCreditalertConfig extends CommonDBTM
         $input['field_end_date'] = self::sanitizeIdentifier($input['field_end_date'] ?? $config['field_end_date'], $config['field_end_date'], true);
         $input['field_is_active'] = self::sanitizeIdentifier($input['field_is_active'] ?? $config['field_is_active'], $config['field_is_active'], true);
         $input['field_ticket'] = self::sanitizeIdentifier($input['field_ticket'] ?? $config['field_ticket'], $config['field_ticket'], true);
+        $input['export_filename_base'] = self::sanitizeFilenameBase(
+            $input['export_filename_base'] ?? ($config['export_filename_base'] ?? 'Export_Client_Glpi')
+        );
+        $input['export_filename_include_date'] = !empty($input['export_filename_include_date']) ? 1 : 0;
+        $input['export_filename_include_entity'] = !empty($input['export_filename_include_entity']) ? 1 : 0;
 
         if ($cfgItem->getFromDB($input['id'])) {
             $updated = (bool) $cfgItem->update($input);
@@ -213,6 +221,24 @@ class PluginCreditalertConfig extends CommonDBTM
         }
     }
 
+    private static function registerViewsInSearchCache(array $viewMap): void
+    {
+        /** @var array $CFG_GLPI */
+        global $CFG_GLPI;
+
+        if (!isset($CFG_GLPI['glpiitemtypetables']) || !is_array($CFG_GLPI['glpiitemtypetables'])) {
+            $CFG_GLPI['glpiitemtypetables'] = [];
+        }
+        if (!isset($CFG_GLPI['glpitablesitemtype']) || !is_array($CFG_GLPI['glpitablesitemtype'])) {
+            $CFG_GLPI['glpitablesitemtype'] = [];
+        }
+
+        foreach ($viewMap as $table => $itemtype) {
+            $CFG_GLPI['glpiitemtypetables'][$table] = $itemtype;
+            $CFG_GLPI['glpitablesitemtype'][$itemtype] = $table;
+        }
+    }
+
     public static function ensureViews(): void
     {
         /** @var DBmysql $DB */
@@ -246,6 +272,10 @@ class PluginCreditalertConfig extends CommonDBTM
         }
 
         self::registerViewsInDbCache([$creditsView, $consumptionsView]);
+        self::registerViewsInSearchCache([
+            $creditsView => PluginCreditalertCreditSummary::class,
+            $consumptionsView => PluginCreditalertConsumption::class,
+        ]);
     }
 
     public static function refreshViews(?array $config = null): void
@@ -378,6 +408,53 @@ class PluginCreditalertConfig extends CommonDBTM
             return $fallback;
         }
         return $value;
+    }
+
+    private static function sanitizeFilenamePart(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        $value = preg_replace('/[\\\\\\/\\:\\*\\?\\"<>\\|]+/', '_', $value);
+        $value = preg_replace('/\\s+/', ' ', $value);
+        $value = trim($value, "._");
+        return $value;
+    }
+
+    private static function sanitizeFilenameBase(string $value): string
+    {
+        $value = self::sanitizeFilenamePart($value);
+        if ($value === '') {
+            return 'Export_Client_Glpi';
+        }
+        $value = preg_replace('/\\.csv$/i', '', $value);
+        return $value;
+    }
+
+    public static function getExportFilename(?int $entityId = null): string
+    {
+        $config = self::getConfig();
+        $base = self::sanitizeFilenameBase((string) ($config['export_filename_base'] ?? ''));
+        $parts = [$base];
+
+        if (!empty($config['export_filename_include_entity']) && $entityId !== null && $entityId > 0) {
+            $entityPart = self::sanitizeFilenamePart(self::getEntityShortName($entityId));
+            if ($entityPart !== '') {
+                $parts[] = $entityPart;
+            }
+        }
+
+        if (!empty($config['export_filename_include_date'])) {
+            $parts[] = date('Ymd');
+        }
+
+        $parts = array_values(array_filter($parts, static function ($part) {
+            return $part !== '';
+        }));
+        $filename = $parts ? implode('_', $parts) : 'Export_Client_Glpi';
+
+        return $filename . '.csv';
     }
 }
 

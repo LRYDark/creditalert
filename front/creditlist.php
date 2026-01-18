@@ -53,6 +53,18 @@ if ($view === 'credits') {
     }
     $selectedCredits = array_values(array_filter(array_map('intval', $selectedCredits)));
 
+    $entityScope = [];
+    if ($entityId > 0) {
+        $entityScope = getSonsOf('glpi_entities', $entityId);
+        if (!is_array($entityScope)) {
+            $entityScope = [$entityId];
+        }
+        $entityScope = array_values(array_unique(array_filter(array_map('intval', $entityScope))));
+        if (empty($entityScope)) {
+            $entityScope = [$entityId];
+        }
+    }
+
     $creditTable = $config['credit_table'];
     $fieldEntity = $config['field_entity'];
     $fieldClient = $config['field_client'];
@@ -63,6 +75,7 @@ if ($view === 'credits') {
     $creditsOptions = [];
     $creditsStatus = [];
     if ($entityId > 0) {
+        $creditEntityScope = $entityScope ?: [$entityId];
         $query = [
             'SELECT' => [
                 "$creditListTable.id AS id",
@@ -70,7 +83,7 @@ if ($view === 'credits') {
             ],
             'FROM'   => $creditListTable,
             'WHERE'  => [
-                "$creditListTable.$creditEntityField" => $entityId,
+                "$creditListTable.$creditEntityField" => $creditEntityScope,
             ],
             'ORDER'  => [
                 "$creditListTable.$creditLabelField",
@@ -220,11 +233,20 @@ JS;
         } else {
             $criteria = [];
 
+            $entityCriteria = [];
+            $scopeIds = $entityScope ?: [$entityId];
+            foreach ($scopeIds as $scopeId) {
+                $entityCriteria[] = [
+                    'link'       => 'OR',
+                    'field'      => PluginCreditalertConsumption::OPT_ENTITY,
+                    'searchtype' => 'equals',
+                    'value'      => $scopeId,
+                    '_hidden'    => true,
+                ];
+            }
             $criteria[] = [
                 'link'     => 'AND',
-                'field'    => PluginCreditalertConsumption::OPT_ENTITY,
-                'searchtype' => 'equals',
-                'value'    => $entityId,
+                'criteria' => $entityCriteria,
                 '_hidden'  => true,
             ];
 
@@ -398,7 +420,30 @@ JS;
                 PluginCreditalertConsumption::OPT_TICKET_DATE,
             ];
 
-            Search::showList(PluginCreditalertConsumption::class, $params, $forcedDisplay);
+            $data = Search::getDatas(PluginCreditalertConsumption::class, $params, $forcedDisplay);
+            $allowedColumns = array_values(array_unique(array_map('intval', $forcedDisplay)));
+            if (isset($data['data']['cols'])) {
+                $data['data']['cols'] = array_values(array_filter(
+                    $data['data']['cols'],
+                    static function ($col) use ($allowedColumns) {
+                        return in_array((int) $col['id'], $allowedColumns, true);
+                    }
+                ));
+            }
+            switch ($data['display_type']) {
+                case Search::CSV_OUTPUT:
+                case Search::PDF_OUTPUT_LANDSCAPE:
+                case Search::PDF_OUTPUT_PORTRAIT:
+                case Search::SYLK_OUTPUT:
+                case Search::NAMES_OUTPUT:
+                    Search::outputData($data);
+                    break;
+                case Search::GLOBAL_SEARCH:
+                case Search::HTML_OUTPUT:
+                default:
+                    Search::displayData($data);
+                    break;
+            }
             if ($showOther) {
                 PluginCreditalertConsumption::injectOtherTicketRowColors();
             }

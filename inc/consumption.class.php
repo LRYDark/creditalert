@@ -1,10 +1,7 @@
 <?php
 
-use Glpi\DBAL\QueryExpression;
-
-if (!class_exists(QueryExpression::class) && class_exists('\QueryExpression')) {
-    class_alias('\QueryExpression', QueryExpression::class);
-}
+use Glpi\Toolbox\Sanitizer;
+use Glpi\Toolbox\URL;
 
 class PluginCreditalertConsumption extends CommonDBTM
 {
@@ -167,7 +164,11 @@ class PluginCreditalertConsumption extends CommonDBTM
                 $status = $values['name'] ?? $values ?? '';
                 return Ticket::getStatus((int) $status);
             case 'entities_id':
-                return PluginCreditalertConfig::getEntityShortName((int) $values);
+                $entityId = $values;
+                if (is_array($values)) {
+                    $entityId = $values['name'] ?? $values['entities_id'] ?? $values['id'] ?? current($values);
+                }
+                return PluginCreditalertConfig::getEntityShortName((int) $entityId);
             case 'credit_label':
                 $label = $values['name'] ?? $values['credit_label'] ?? $values ?? '';
                 $additional = $values['additionalfields'] ?? [];
@@ -365,7 +366,22 @@ JS;
 
             /** @var array $CFG_GLPI */
             global $CFG_GLPI;
-            $ma->setRedirect($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/consumptions.export.php');
+            $input = $ma->getInput();
+            $redirect = '';
+            $rawRedirect = (string) ($input['redirect'] ?? '');
+            if ($rawRedirect !== '') {
+                $rawRedirect = Sanitizer::unsanitize($rawRedirect, false);
+                $redirect = URL::sanitizeURL($rawRedirect);
+            }
+            if (empty($redirect)) {
+                $redirect = Html::getBackUrl();
+            }
+            if (empty($redirect)) {
+                $redirect = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php?view=consumptions';
+            }
+            $separator = (strpos($redirect, '?') !== false) ? '&' : '?';
+            $redirect .= $separator . Toolbox::append_params(['creditalert_export' => 1]);
+            $ma->setRedirect($redirect);
             return;
         }
 
@@ -468,13 +484,21 @@ JS;
 
         $where = [];
         if ($entityId > 0) {
-            $where[$fieldEntity] = $entityId;
+            $entityScope = getSonsOf('glpi_entities', $entityId);
+            if (!is_array($entityScope)) {
+                $entityScope = [$entityId];
+            }
+            $entityScope = array_values(array_unique(array_filter(array_map('intval', $entityScope))));
+            if (empty($entityScope)) {
+                $entityScope = [$entityId];
+            }
+            $where[$fieldEntity] = $entityScope;
         }
         $select = [
             "$creditTable.id AS id",
             "$creditTable.$fieldClient AS name",
             "$creditTable.$fieldSold AS quantity_sold",
-            new QueryExpression("COALESCE(SUM($consumptionTable.$fieldUsed), 0) AS consumed"),
+            new \QueryExpression("COALESCE(SUM($consumptionTable.$fieldUsed), 0) AS consumed"),
         ];
         $groupby = [
             "$creditTable.id",

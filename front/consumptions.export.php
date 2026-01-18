@@ -87,6 +87,7 @@ if (!empty($ticketIds)) {
         ],
     ]) as $task) {
         $text = html_entity_decode((string) ($task['content'] ?? ''), ENT_QUOTES, 'UTF-8');
+        $text = str_replace("\xC2\xA0", ' ', $text);
         $text = trim(preg_replace('/\s+/u', ' ', strip_tags($text)));
         if ($text === '') {
             continue;
@@ -95,12 +96,18 @@ if (!empty($ticketIds)) {
     }
 }
 
-$filename = 'creditalert_consumptions_' . date('Ymd_His') . '.csv';
+$entityIdForExport = (int) ($rows[0]['entities_id'] ?? 0);
+$filename = PluginCreditalertConfig::getExportFilename($entityIdForExport);
 header('Content-Type: text/csv; charset=utf-8');
 header('Content-Disposition: attachment; filename="' . $filename . '"');
 echo "\xEF\xBB\xBF";
 
 $out = fopen('php://output', 'w');
+$normalize = static function ($value): string {
+    $text = html_entity_decode((string) $value, ENT_QUOTES, 'UTF-8');
+    $text = str_replace("\xC2\xA0", ' ', $text);
+    return trim($text);
+};
 fputcsv($out, [
     __('N° Ticket', 'creditalert'),
     __('Entite', 'creditalert'),
@@ -122,8 +129,8 @@ fputcsv($out, [
 
 foreach ($rows as $row) {
     $ticketId = (int) ($row['ticket_id'] ?? 0);
-    $entityName = PluginCreditalertConfig::getEntityShortName((int) ($row['entities_id'] ?? 0));
-    $categoryName = Dropdown::getDropdownName('glpi_itilcategories', (int) ($row['itilcategories_id'] ?? 0));
+    $entityName = $normalize(PluginCreditalertConfig::getEntityShortName((int) ($row['entities_id'] ?? 0)));
+    $categoryName = $normalize(Dropdown::getDropdownName('glpi_itilcategories', (int) ($row['itilcategories_id'] ?? 0)));
     $ticketType = Ticket::getTicketTypeName((int) ($row['ticket_type'] ?? 0));
     $ticketStatus = Ticket::getStatus((int) ($row['ticket_status'] ?? 0));
 
@@ -187,10 +194,10 @@ foreach ($rows as $row) {
         $waitingMinutes,
         $resolutionMinutes,
         $categoryName,
-        $row['ticket_title'] ?? '',
+        $normalize($row['ticket_title'] ?? ''),
         $tasksText,
         $row['consumed'] ?? '',
-        $row['credit_label'] ?? '',
+        $normalize($row['credit_label'] ?? ''),
     ], ';');
 }
 

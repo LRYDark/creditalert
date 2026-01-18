@@ -150,6 +150,42 @@ echo "</div>"; // row
 echo "</div>"; // card-body
 echo "</div>"; // card
 
+// Card CSV exports
+echo "<div class='card mb-3'>";
+echo "<div class='card-header'><h3 class='card-title mb-0'>" . __('Exports CSV', 'creditalert') . "</h3></div>";
+echo "<div class='card-body'>";
+echo "<div class='row g-3 align-items-end'>";
+
+echo "<div class='col-md-6'>";
+echo "<label class='form-label mb-1'>" . __('Nom du fichier', 'creditalert') . "</label>";
+echo Html::input('export_filename_base', [
+    'value' => $config['export_filename_base'] ?? 'Export_Client_Glpi',
+    'class' => 'form-control',
+]);
+echo "</div>";
+
+echo "<div class='col-md-3'>";
+echo "<div class='form-check mt-4'>";
+echo "<input class='form-check-input' type='checkbox' name='export_filename_include_date' id='creditalert_export_filename_date' value='1'"
+    . (!empty($config['export_filename_include_date']) ? ' checked' : '') . ">";
+echo "<label class='form-check-label' for='creditalert_export_filename_date'>"
+    . __('Ajouter la date', 'creditalert') . "</label>";
+echo "</div>";
+echo "</div>";
+
+echo "<div class='col-md-3'>";
+echo "<div class='form-check mt-4'>";
+echo "<input class='form-check-input' type='checkbox' name='export_filename_include_entity' id='creditalert_export_filename_entity' value='1'"
+    . (!empty($config['export_filename_include_entity']) ? ' checked' : '') . ">";
+echo "<label class='form-check-label' for='creditalert_export_filename_entity'>"
+    . __('Ajouter l\'entite', 'creditalert') . "</label>";
+echo "</div>";
+echo "</div>";
+
+echo "</div>"; // row
+echo "</div>"; // card-body
+echo "</div>"; // card
+
 // Save button
 echo "<div class='card mb-3'>";
 echo "<div class='card-body text-center'>";
@@ -173,6 +209,7 @@ echo "<label class='form-label mb-1'>" . Entity::getTypeName(1) . "</label>";
 Dropdown::show('Entity', [
     'name'   => 'entities_id',
     'entity' => $_SESSION['glpiactive_entity'] ?? 0,
+    'entity_sons' => true,
     'class'  => 'form-control',
 ]);
 echo "</div>";

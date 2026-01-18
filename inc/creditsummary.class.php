@@ -114,6 +114,7 @@ class PluginCreditalertCreditSummary extends CommonDBTM
             'name'          => __('Export CSV', 'creditalert'),
             'datatype'      => 'specific',
             'additionalfields' => ['id'],
+            'creditalert_export' => true,
             'massiveaction' => false,
             'nosearch'      => true,
             'itemtype'      => $itemtype,
@@ -124,8 +125,8 @@ class PluginCreditalertCreditSummary extends CommonDBTM
 
     public static function getSpecificValueToDisplay($field, $values, array $options = [])
     {
-        $searchoptId = $options['searchopt']['id'] ?? null;
-        if ($searchoptId === self::SEARCH_BASE + 9) {
+        $searchopt = $options['searchopt'] ?? [];
+        if (!empty($searchopt['creditalert_export'])) {
             $creditId = $values['additionalfields']['id'] ?? null;
             if (!$creditId) {
                 $creditId = self::extractCreditIdFromRaw($options, $values);
@@ -145,7 +146,7 @@ class PluginCreditalertCreditSummary extends CommonDBTM
                 $config = PluginCreditalertConfig::getConfig();
                 return PluginCreditalertCreditItem::formatStatus($status, $config);
             case 'entities_id':
-                $entityId = $values['id'] ?? $values;
+                $entityId = $values['name'] ?? $values['entities_id'] ?? $values['id'] ?? current($values);
                 return PluginCreditalertConfig::getEntityShortName((int) $entityId);
             case 'quantity_used':
                 $quantity = $values['name'] ?? ($values['quantity_used'] ?? $values);

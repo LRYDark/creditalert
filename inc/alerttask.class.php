@@ -1,10 +1,6 @@
 <?php
 
-use Glpi\DBAL\QueryExpression;
-
-if (!class_exists(QueryExpression::class) && class_exists('\QueryExpression')) {
-    class_alias('\QueryExpression', QueryExpression::class);
-}
+use Glpi\Toolbox\Sanitizer;
 
 class PluginCreditalertAlertTask extends CommonDBTM
 {
@@ -22,6 +18,11 @@ class PluginCreditalertAlertTask extends CommonDBTM
     }
 
     public static function cronCreditalert(CronTask $task)
+    {
+        return self::runAlerts($task);
+    }
+
+    public static function croncronCreditalert(CronTask $task)
     {
         return self::runAlerts($task);
     }
@@ -133,7 +134,7 @@ class PluginCreditalertAlertTask extends CommonDBTM
                     'last_status'      => $status,
                     'last_percentage'  => $percentage,
                     'last_hash'        => $hash,
-                    'last_notified_at' => new QueryExpression('CURRENT_TIMESTAMP'),
+                    'last_notified_at' => new \QueryExpression('CURRENT_TIMESTAMP'),
                 ],
                 ['plugin_credit_entities_id' => $creditId]
             );
@@ -147,7 +148,7 @@ class PluginCreditalertAlertTask extends CommonDBTM
                 'last_status'               => $status,
                 'last_percentage'           => $percentage,
                 'last_hash'                 => $hash,
-                'last_notified_at'          => new QueryExpression('CURRENT_TIMESTAMP'),
+            'last_notified_at'          => new \QueryExpression('CURRENT_TIMESTAMP'),
             ]
         );
     }
@@ -181,7 +182,7 @@ class PluginCreditalertAlertTask extends CommonDBTM
         );
 
         $bodyLines = [
-            sprintf(__('Client : %s', 'creditalert'), $credit['client_label']),
+            sprintf(__('Crédit : %s', 'creditalert'), $credit['client_label']),
             sprintf(__('Entite : %s', 'creditalert'), $entityLabel),
             sprintf(__('Quantite vendue : %s', 'creditalert'), $credit['quantity_sold']),
             sprintf(__('Quantite consommee : %s', 'creditalert'), $credit['quantity_used']),
@@ -194,17 +195,44 @@ class PluginCreditalertAlertTask extends CommonDBTM
         }
 
         $mailer = new GLPIMailer();
-        $mailer->setSubject($subject);
-        $mailer->setBody(implode(PHP_EOL, $bodyLines));
+        if (method_exists($mailer, 'getEmail')) {
+            $email = $mailer->getEmail();
+            $email->subject($subject);
+            $email->text(implode(PHP_EOL, $bodyLines));
 
-        foreach ($recipients as $email) {
-            $mailer->addTo($email);
+            foreach ($recipients as $recipient) {
+                $email->addTo((string) $recipient);
+            }
+
+            if (!empty($CFG_GLPI['admin_email'])) {
+                $email->from($CFG_GLPI['admin_email']);
+            }
+
+            return $mailer->send();
         }
 
-        if (!empty($CFG_GLPI['admin_email'])) {
-            $mailer->setFrom($CFG_GLPI['admin_email']);
+        $sender = Config::getEmailSender((int) ($credit['entities_id'] ?? 0));
+        if (!empty($sender['email'])) {
+            $mailer->SetFrom(
+                $sender['email'],
+                Sanitizer::decodeHtmlSpecialChars((string) ($sender['name'] ?? '')),
+                false
+            );
+        } elseif (!empty($CFG_GLPI['admin_email'])) {
+            $mailer->SetFrom(
+                $CFG_GLPI['admin_email'],
+                Sanitizer::decodeHtmlSpecialChars((string) ($CFG_GLPI['admin_email_name'] ?? '')),
+                false
+            );
         }
 
-        return $mailer->send();
+        foreach ($recipients as $recipient) {
+            $mailer->AddAddress((string) $recipient);
+        }
+
+        $mailer->Subject = $subject;
+        $mailer->Body = implode(PHP_EOL, $bodyLines);
+
+        return $mailer->Send();
     }
 }

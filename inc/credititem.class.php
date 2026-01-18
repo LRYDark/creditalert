@@ -144,20 +144,21 @@ class PluginCreditalertCreditItem extends CommonDBTM
 
     public static function getSpecificValueToDisplay($field, $values, array $options = [])
     {
+        $rawValue = $values;
         if (is_array($values)) {
-            $values = current($values);
+            $rawValue = $values['name'] ?? $values[$field] ?? $values['id'] ?? current($values);
         }
         switch ($field) {
             case 'status':
                 $config = PluginCreditalertConfig::getConfig();
-                return self::formatStatus((string) $values, $config);
+                return self::formatStatus((string) $rawValue, $config);
             case 'entities_id':
-                return PluginCreditalertConfig::getEntityShortName((int) $values);
+                return PluginCreditalertConfig::getEntityShortName((int) $rawValue);
             case 'last_ticket_id':
-                if ($values <= 0) {
+                if ((int) $rawValue <= 0) {
                     return '';
                 }
-                $ticketId = (int) $values;
+                $ticketId = (int) $rawValue;
                 $url = Ticket::getFormURLWithID($ticketId);
                 $label = Dropdown::getDropdownName('glpi_tickets', $ticketId);
                 return "<a href='{$url}'>" . Html::entities_deep($label ?: $ticketId) . '</a>';
