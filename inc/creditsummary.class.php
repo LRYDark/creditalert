@@ -23,6 +23,15 @@ class PluginCreditalertCreditSummary extends CommonDBTM
         return 'glpi_plugin_creditalert_vcredits';
     }
 
+    public static function getSearchURL($full = true)
+    {
+        /** @var array $CFG_GLPI */
+        global $CFG_GLPI;
+
+        $base = $full ? $CFG_GLPI['root_doc'] : '';
+        return $base . '/plugins/creditalert/front/creditlist.php?view=credits';
+    }
+
     public function rawSearchOptions()
     {
         $tab = parent::rawSearchOptions();
@@ -95,6 +104,7 @@ class PluginCreditalertCreditSummary extends CommonDBTM
             'field'    => 'status',
             'name'     => __('Statut', 'creditalert'),
             'datatype' => 'specific',
+            'searchtype' => 'equals',
             'itemtype' => $itemtype,
         ];
 
@@ -104,6 +114,16 @@ class PluginCreditalertCreditSummary extends CommonDBTM
             'field'    => 'end_date',
             'name'     => __('Date d\'expiration', 'creditalert'),
             'datatype' => 'datetime',
+            'itemtype' => $itemtype,
+        ];
+
+        $tab[] = [
+            'id'       => $baseId + 8,
+            'table'    => self::getTable(),
+            'field'    => 'is_active',
+            'name'     => __('Actif', 'creditalert'),
+            'datatype' => 'specific',
+            'searchtype' => 'equals',
             'itemtype' => $itemtype,
         ];
 
@@ -145,6 +165,12 @@ class PluginCreditalertCreditSummary extends CommonDBTM
                 $status = strtoupper((string) ($values['name'] ?? $values));
                 $config = PluginCreditalertConfig::getConfig();
                 return PluginCreditalertCreditItem::formatStatus($status, $config);
+            case 'is_active':
+                $raw = $values['name'] ?? ($values['is_active'] ?? $values);
+                $active = ((int) $raw) === 1;
+                $label = $active ? __('Actif', 'creditalert') : __('Inactif', 'creditalert');
+                $class = $active ? 'bg-success' : 'bg-secondary';
+                return "<span class='badge {$class}'>{$label}</span>";
             case 'entities_id':
                 $entityId = $values['name'] ?? $values['entities_id'] ?? $values['id'] ?? current($values);
                 return PluginCreditalertConfig::getEntityShortName((int) $entityId);
@@ -178,6 +204,35 @@ class PluginCreditalertCreditSummary extends CommonDBTM
         }
 
         return parent::getSpecificValueToDisplay($field, $values, $options);
+    }
+
+    public static function getSpecificValueToSelect($field, $name = '', $values = '', array $options = [])
+    {
+        if (!is_array($values)) {
+            $values = [$field => $values];
+        }
+        $options['display'] = false;
+
+        switch ($field) {
+            case 'status':
+                $options['value'] = $values[$field] ?? '';
+                $choices = [
+                    'OK'      => __('OK', 'creditalert'),
+                    'WARNING' => __('Avertissement', 'creditalert'),
+                    'OVER'    => __('Surconsommation', 'creditalert'),
+                    'EXPIRED' => __('Expire', 'creditalert'),
+                ];
+                return Dropdown::showFromArray($name, $choices, $options);
+            case 'is_active':
+                $options['value'] = $values[$field] ?? '';
+                $choices = [
+                    1 => __('Actif', 'creditalert'),
+                    0 => __('Inactif', 'creditalert'),
+                ];
+                return Dropdown::showFromArray($name, $choices, $options);
+        }
+
+        return parent::getSpecificValueToSelect($field, $name, $values, $options);
     }
 
     /**

@@ -251,6 +251,18 @@ class PluginCreditalertConfig extends CommonDBTM
         if (!self::viewExists($creditsView) || !self::viewExists($consumptionsView)) {
             $needsRefresh = true;
         } else {
+            $creditColumns = [];
+            foreach ($DB->request([
+                'SELECT' => ['column_name'],
+                'FROM'   => 'information_schema.columns',
+                'WHERE'  => [
+                    'table_schema' => $DB->dbdefault,
+                    'table_name'   => $creditsView,
+                ],
+            ]) as $row) {
+                $creditColumns[$row['column_name']] = true;
+            }
+
             $columns = [];
             foreach ($DB->request([
                 'SELECT' => ['column_name'],
@@ -263,6 +275,9 @@ class PluginCreditalertConfig extends CommonDBTM
                 $columns[$row['column_name']] = true;
             }
             if (!isset($columns['has_consumption']) || !isset($columns['ticket_end_date'])) {
+                $needsRefresh = true;
+            }
+            if (!isset($creditColumns['is_active'])) {
                 $needsRefresh = true;
             }
         }
@@ -295,6 +310,7 @@ class PluginCreditalertConfig extends CommonDBTM
         $fieldEntity = self::sanitizeIdentifier($config['field_entity'] ?? $defaults['field_entity'], $defaults['field_entity']);
         $fieldClient = self::sanitizeIdentifier($config['field_client'] ?? $defaults['field_client'], $defaults['field_client']);
         $fieldFkUsage = self::sanitizeIdentifier($config['field_fk_usage'] ?? $defaults['field_fk_usage'], $defaults['field_fk_usage']);
+        $fieldActive = self::sanitizeIdentifier($config['field_is_active'] ?? $defaults['field_is_active'], $defaults['field_is_active'], true);
         $fieldEndDate = self::sanitizeIdentifier($config['field_end_date'] ?? $defaults['field_end_date'], $defaults['field_end_date'], true);
         $fieldTicket = self::sanitizeIdentifier($config['field_ticket'] ?? $defaults['field_ticket'], $defaults['field_ticket'], true);
         if ($fieldTicket === '') {
@@ -302,12 +318,17 @@ class PluginCreditalertConfig extends CommonDBTM
         }
 
         $endDateExpr = $fieldEndDate !== '' ? "c.`{$fieldEndDate}`" : 'NULL';
+        $activeExpr = $fieldActive !== '' ? "c.`{$fieldActive}`" : '1';
         $quantitySoldExpr = "c.`{$fieldSold}`";
         $quantityUsedExpr = "COALESCE(SUM(ct.`{$fieldUsed}`), 0)";
         $percentageExpr = "CASE WHEN {$quantitySoldExpr} > 0 THEN ROUND(({$quantityUsedExpr} / {$quantitySoldExpr}) * 100, 2) ELSE 0 END";
         $thresholdExpr = "COALESCE(ec.alert_threshold, cfg.alert_threshold)";
 
         $viewCredits = 'glpi_plugin_creditalert_vcredits';
+        $creditsGroupBy = "c.id, c.`{$fieldEntity}`, c.`{$fieldClient}`, c.`{$fieldSold}`, {$endDateExpr}, ec.alert_threshold, cfg.alert_threshold";
+        if ($fieldActive !== '') {
+            $creditsGroupBy .= ", {$activeExpr}";
+        }
         $DB->doQuery("DROP VIEW IF EXISTS `{$viewCredits}`;");
         $DB->doQuery(
             "
@@ -320,6 +341,7 @@ class PluginCreditalertConfig extends CommonDBTM
                 {$quantityUsedExpr} AS quantity_used,
                 {$percentageExpr} AS percentage_used,
                 {$thresholdExpr} AS applied_threshold,
+                {$activeExpr} AS is_active,
                 CASE
                     WHEN {$endDateExpr} IS NOT NULL AND {$endDateExpr} < NOW() THEN 'EXPIRED'
                     WHEN {$quantitySoldExpr} > 0 AND {$quantityUsedExpr} > {$quantitySoldExpr} THEN 'OVER'
@@ -333,7 +355,7 @@ class PluginCreditalertConfig extends CommonDBTM
                 ON ct.`{$fieldFkUsage}` = c.id
             LEFT JOIN glpi_plugin_creditalert_entityconfigs ec ON ec.entities_id = c.`{$fieldEntity}`
             CROSS JOIN (SELECT alert_threshold FROM glpi_plugin_creditalert_configs ORDER BY id ASC LIMIT 1) cfg
-            GROUP BY c.id, c.`{$fieldEntity}`, c.`{$fieldClient}`, c.`{$fieldSold}`, {$endDateExpr}, ec.alert_threshold, cfg.alert_threshold;
+            GROUP BY {$creditsGroupBy};
             "
         );
 
