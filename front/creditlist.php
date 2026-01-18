@@ -72,14 +72,60 @@ if ($view === 'credits') {
     $creditListTable = $creditTable;
     $creditLabelField = $fieldClient;
     $creditEntityField = $fieldEntity;
+    $selectedEntityLabel = '';
+    $selectedEntityParts = [];
+    if ($entityId > 0) {
+        $selectedEntityLabel = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+            Dropdown::getDropdownName('glpi_entities', $entityId)
+        );
+        $selectedEntityParts = array_values(array_filter(
+            array_map('trim', explode('>', $selectedEntityLabel)),
+            static function ($part) {
+                return $part !== '';
+            }
+        ));
+    }
+    $getRelativeEntityLabel = static function (string $fullLabel, array $selectedParts): string {
+        $parts = array_values(array_filter(
+            array_map('trim', explode('>', $fullLabel)),
+            static function ($part) {
+                return $part !== '';
+            }
+        ));
+        if (empty($parts)) {
+            return $fullLabel;
+        }
+        if (!empty($selectedParts) && count($parts) >= count($selectedParts)) {
+            $match = true;
+            foreach ($selectedParts as $index => $part) {
+                if (!isset($parts[$index]) || $parts[$index] !== $part) {
+                    $match = false;
+                    break;
+                }
+            }
+            if ($match) {
+                if (count($parts) === count($selectedParts)) {
+                    return (string) end($parts);
+                }
+                $relative = array_slice($parts, count($selectedParts) - 1);
+                return implode(' > ', $relative);
+            }
+        }
+        return (string) end($parts);
+    };
+
     $creditsOptions = [];
     $creditsStatus = [];
+    $creditsEntityDepth = [];
+    $creditsEntityLabels = [];
+    $entityLabels = [];
     if ($entityId > 0) {
         $creditEntityScope = $entityScope ?: [$entityId];
         $query = [
             'SELECT' => [
                 "$creditListTable.id AS id",
                 "$creditListTable.$creditLabelField AS name",
+                "$creditListTable.$creditEntityField AS credit_entity_id",
             ],
             'FROM'   => $creditListTable,
             'WHERE'  => [
@@ -93,11 +139,42 @@ if ($view === 'credits') {
             $query['SELECT'][] = "$creditListTable.$fieldActive AS is_active";
         }
         foreach ($DB->request($query) as $row) {
-            $creditsOptions[$row['id']] = $row['name'];
+            $creditId = (int) ($row['id'] ?? 0);
+            if ($creditId <= 0) {
+                continue;
+            }
+            $creditName = (string) ($row['name'] ?? '');
+            $creditEntityId = (int) ($row['credit_entity_id'] ?? 0);
+            $fullEntityLabel = '';
+            if ($creditEntityId > 0) {
+                if (!array_key_exists($creditEntityId, $entityLabels)) {
+                    $entityLabels[$creditEntityId] = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+                        Dropdown::getDropdownName('glpi_entities', $creditEntityId)
+                    );
+                }
+                $fullEntityLabel = (string) $entityLabels[$creditEntityId];
+            }
+            $entityLabel = $fullEntityLabel !== ''
+                ? $getRelativeEntityLabel($fullEntityLabel, $selectedEntityParts)
+                : '';
+            $optionLabel = trim($creditName);
+            if ($optionLabel === '') {
+                $optionLabel = $entityLabel;
+            }
+            $depth = $fullEntityLabel === '' ? PHP_INT_MAX : substr_count($fullEntityLabel, '>');
+            if (!isset($creditsOptions[$creditId]) || $depth < ($creditsEntityDepth[$creditId] ?? PHP_INT_MAX)) {
+                $creditsOptions[$creditId] = $optionLabel;
+                $creditsEntityDepth[$creditId] = $depth;
+                $creditsEntityLabels[$creditId] = $entityLabel;
+            }
             if (!empty($fieldActive)) {
-                $creditsStatus[$row['id']] = ((int) ($row['is_active'] ?? 0)) === 1 ? 'active' : 'inactive';
+                if (!isset($creditsStatus[$creditId])) {
+                    $creditsStatus[$creditId] = ((int) ($row['is_active'] ?? 0)) === 1 ? 'active' : 'inactive';
+                }
             } else {
-                $creditsStatus[$row['id']] = 'active';
+                if (!isset($creditsStatus[$creditId])) {
+                    $creditsStatus[$creditId] = 'active';
+                }
             }
         }
     }
@@ -107,7 +184,7 @@ if ($view === 'credits') {
     echo "<div class='card mb-3'><div class='card-body'>";
     echo "<div class='row g-3 align-items-end'>";
 
-    echo "<div class='col-md-3'>";
+    echo "<div class='col-md-4'>";
     echo "<label class='form-label mb-1'>" . __('Entite', 'creditalert') . "</label>";
     Dropdown::show('Entity', [
         'name'      => 'entities_id',
@@ -116,7 +193,7 @@ if ($view === 'credits') {
     ]);
     echo "</div>";
 
-    echo "<div class='col-md-3'>";
+    echo "<div class='col-md-4'>";
     echo "<label class='form-label mb-1'>" . __('Date de debut', 'creditalert') . "</label>";
     Html::showDateField('date_begin', [
         'value'       => $dateBegin,
@@ -125,7 +202,7 @@ if ($view === 'credits') {
     ]);
     echo "</div>";
 
-    echo "<div class='col-md-3'>";
+    echo "<div class='col-md-4'>";
     echo "<label class='form-label mb-1'>" . __('Date de fin', 'creditalert') . "</label>";
     Html::showDateField('date_end', [
         'value'       => $dateEnd,
@@ -134,7 +211,9 @@ if ($view === 'credits') {
     ]);
     echo "</div>";
 
-    echo "<div class='col-md-3'>";
+    echo "</div>";
+    echo "<div class='row g-3'>";
+    echo "<div class='col-12 creditalert-credits-row'>";
     echo "<label class='form-label mb-1'>" . __('Credits', 'creditalert') . "</label>";
     $creditSelectRand = mt_rand();
     static $creditFilterScriptLoaded = false;
@@ -151,25 +230,28 @@ window.creditalertCreditFilterResult = function(item) {
     if (item.element && item.element.dataset && item.element.dataset.status) {
         status = item.element.dataset.status;
     }
-    var label = '';
-    var badgeStyle = '';
-    if (status === 'inactive') {
-        label = {$inactiveLabel};
-        badgeStyle = 'background-color:#ffffff;color:#6c757d;border:1px solid #6c757d;';
-    } else if (status === 'active') {
-        label = {$activeLabel};
-        badgeStyle = 'background-color:#ffffff;color:#1a7f37;border:1px solid #1a7f37;';
+    var entityLabel = '';
+    if (item.element && item.element.dataset && item.element.dataset.entityLabel) {
+        entityLabel = item.element.dataset.entityLabel;
     }
     var container = $('<span></span>');
     container.text(item.text);
-    if (label) {
+    var addBadge = function(text, style) {
         var badge = $('<span></span>');
         badge.addClass('badge ms-2');
-        if (badgeStyle) {
-            badge.attr('style', badgeStyle);
+        if (style) {
+            badge.attr('style', style);
         }
-        badge.text(label);
+        badge.text(text);
         container.append(' ').append(badge);
+    };
+    if (entityLabel) {
+        addBadge(entityLabel, 'background-color:#ffffff;color:#0d6efd;border:1px solid #0d6efd;');
+    }
+    if (status === 'inactive') {
+        addBadge({$inactiveLabel}, 'background-color:#ffffff;color:#6c757d;border:1px solid #6c757d;');
+    } else if (status === 'active') {
+        addBadge({$activeLabel}, 'background-color:#ffffff;color:#1a7f37;border:1px solid #1a7f37;');
     }
     return container;
 };
@@ -189,9 +271,10 @@ JS;
         'templateResult' => 'creditalertCreditFilterResult',
         'templateSelection' => 'creditalertCreditFilterSelection',
     ]);
-    if (!empty($creditsStatus)) {
+    if (!empty($creditsStatus) || !empty($creditsEntityLabels)) {
         $selectId = 'dropdown_credits_id' . $creditSelectRand;
-        $statusJson = json_encode($creditsStatus, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $statusJson = json_encode((object) $creditsStatus, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $entityJson = json_encode((object) $creditsEntityLabels, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
         $js = <<<JS
 (function() {
     var select = document.getElementById('{$selectId}');
@@ -199,10 +282,17 @@ JS;
         return;
     }
     var statuses = {$statusJson};
+    var entities = {$entityJson};
     Object.keys(statuses).forEach(function(id) {
         var opt = select.querySelector('option[value="' + id + '"]');
         if (opt) {
             opt.dataset.status = statuses[id];
+        }
+    });
+    Object.keys(entities).forEach(function(id) {
+        var opt = select.querySelector('option[value="' + id + '"]');
+        if (opt) {
+            opt.dataset.entityLabel = entities[id];
         }
     });
 })();
@@ -211,8 +301,10 @@ JS;
     }
     echo "</div>";
 
-    echo "<div class='col-md-3'>";
-    echo "<div class='form-check mt-4'>";
+    echo "</div>";
+    echo "<div class='row g-3'>";
+    echo "<div class='col-md-6'>";
+    echo "<div class='form-check mt-2'>";
     echo "<input class='form-check-input' type='checkbox' name='show_other' id='creditalert_show_other' value='1'"
         . ($showOther ? ' checked' : '') . ">";
     echo "<label class='form-check-label' for='creditalert_show_other'>"

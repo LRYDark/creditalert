@@ -215,13 +215,13 @@ class PluginCreditalertAlertTask extends CommonDBTM
         if (!empty($sender['email'])) {
             $mailer->SetFrom(
                 $sender['email'],
-                Sanitizer::decodeHtmlSpecialChars((string) ($sender['name'] ?? '')),
+                \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars((string) ($sender['name'] ?? '')),
                 false
             );
         } elseif (!empty($CFG_GLPI['admin_email'])) {
             $mailer->SetFrom(
                 $CFG_GLPI['admin_email'],
-                Sanitizer::decodeHtmlSpecialChars((string) ($CFG_GLPI['admin_email_name'] ?? '')),
+                \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars((string) ($CFG_GLPI['admin_email_name'] ?? '')),
                 false
             );
         }

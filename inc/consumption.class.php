@@ -274,6 +274,9 @@ JS;
             if ($credit['percent'] !== '') {
                 $attr .= " data-percent='" . Html::cleanInputText((string) $credit['percent']) . "'";
             }
+            if (!empty($credit['entity_label'])) {
+                $attr .= " data-entity-label='" . Html::cleanInputText((string) $credit['entity_label']) . "'";
+            }
             echo "<option value='" . (int) $creditId . "'{$attr}>";
             echo Html::entities_deep($credit['label']);
             echo "</option>";
@@ -302,6 +305,9 @@ window.creditalertCreditBadgeResult = function(item) {
         badge.text(text);
         container.append(' ').append(badge);
     };
+    if (data.entityLabel) {
+        addBadge(data.entityLabel, 'bg-info');
+    }
     if (data.beginYear) {
         addBadge({$labelBegin} + ' ' + data.beginYear, 'bg-primary');
     }
@@ -370,7 +376,7 @@ JS;
             $redirect = '';
             $rawRedirect = (string) ($input['redirect'] ?? '');
             if ($rawRedirect !== '') {
-                $rawRedirect = Sanitizer::unsanitize($rawRedirect, false);
+                $rawRedirect = \Glpi\Toolbox\Sanitizer::unsanitize($rawRedirect, false);
                 $redirect = URL::sanitizeURL($rawRedirect);
             }
             if (empty($redirect)) {
@@ -482,6 +488,48 @@ JS;
             }
         }
 
+        $selectedEntityLabel = '';
+        $selectedEntityParts = [];
+        if ($entityId > 0) {
+            $selectedEntityLabel = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+                Dropdown::getDropdownName('glpi_entities', $entityId)
+            );
+            $selectedEntityParts = array_values(array_filter(
+                array_map('trim', explode('>', $selectedEntityLabel)),
+                static function ($part) {
+                    return $part !== '';
+                }
+            ));
+        }
+        $getRelativeEntityLabel = static function (string $fullLabel, array $selectedParts): string {
+            $parts = array_values(array_filter(
+                array_map('trim', explode('>', $fullLabel)),
+                static function ($part) {
+                    return $part !== '';
+                }
+            ));
+            if (empty($parts)) {
+                return $fullLabel;
+            }
+            if (!empty($selectedParts) && count($parts) >= count($selectedParts)) {
+                $match = true;
+                foreach ($selectedParts as $index => $part) {
+                    if (!isset($parts[$index]) || $parts[$index] !== $part) {
+                        $match = false;
+                        break;
+                    }
+                }
+                if ($match) {
+                    if (count($parts) === count($selectedParts)) {
+                        return (string) end($parts);
+                    }
+                    $relative = array_slice($parts, count($selectedParts) - 1);
+                    return implode(' > ', $relative);
+                }
+            }
+            return (string) end($parts);
+        };
+
         $where = [];
         if ($entityId > 0) {
             $entityScope = getSonsOf('glpi_entities', $entityId);
@@ -498,12 +546,14 @@ JS;
             "$creditTable.id AS id",
             "$creditTable.$fieldClient AS name",
             "$creditTable.$fieldSold AS quantity_sold",
+            "$creditTable.$fieldEntity AS credit_entity_id",
             new \QueryExpression("COALESCE(SUM($consumptionTable.$fieldUsed), 0) AS consumed"),
         ];
         $groupby = [
             "$creditTable.id",
             "$creditTable.$fieldClient",
             "$creditTable.$fieldSold",
+            "$creditTable.$fieldEntity",
         ];
         if (!empty($fieldActive)) {
             $select[] = "$creditTable.$fieldActive AS is_active";
@@ -519,6 +569,7 @@ JS;
         }
 
         $credits = [];
+        $entityLabels = [];
         foreach ($DB->request([
             'SELECT' => $select,
             'FROM'  => $creditTable,
@@ -543,6 +594,19 @@ JS;
                     $expired = true;
                 }
             }
+            $fullEntityLabel = '';
+            $entityId = (int) ($row['credit_entity_id'] ?? 0);
+            if ($entityId > 0) {
+                if (!array_key_exists($entityId, $entityLabels)) {
+                    $entityLabels[$entityId] = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+                        Dropdown::getDropdownName('glpi_entities', $entityId)
+                    );
+                }
+                $fullEntityLabel = (string) $entityLabels[$entityId];
+            }
+            $entityLabel = $fullEntityLabel !== ''
+                ? $getRelativeEntityLabel($fullEntityLabel, $selectedEntityParts)
+                : '';
             $active = true;
             if (!empty($fieldActive)) {
                 $active = ((int) ($row['is_active'] ?? 0)) === 1;
@@ -564,6 +628,7 @@ JS;
             }
             $credits[(int) $row['id']] = [
                 'label'   => $row['name'],
+                'entity_label' => $entityLabel,
                 'expired' => $expired,
                 'expire_date' => $expireDate,
                 'active'  => $active,
