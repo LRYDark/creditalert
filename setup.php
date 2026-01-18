@@ -2,7 +2,7 @@
 
 define('PLUGIN_CREDITALERT_VERSION', '1.0.0');
 define('PLUGIN_CREDITALERT_MIN_GLPI', '10.0.0');
-define('PLUGIN_CREDITALERT_MAX_GLPI', '11.0.99');
+define('PLUGIN_CREDITALERT_MAX_GLPI', '10.0.99');
 
 /**
  * Init hooks of the plugin.
