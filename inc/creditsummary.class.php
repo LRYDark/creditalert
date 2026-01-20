@@ -62,8 +62,8 @@ class PluginCreditalertCreditSummary extends CommonDBTM
 
         $tab[] = [
             'id'            => $baseId + 2,
-            'table'         => self::getTable(),
-            'field'         => 'entities_id',
+            'table'         => 'glpi_entities',
+            'field'         => 'completename',
             'name'          => Entity::getTypeName(1),
             'datatype'      => 'dropdown',
             'itemlink_type' => Entity::class,

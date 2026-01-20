@@ -7,6 +7,7 @@ class PluginCreditalertProfile extends Profile
 
     public const RIGHT_READ   = 1024;
     public const RIGHT_CONFIG = 2048;
+    public const RIGHT_REASSIGN = 4096;
 
     public static function getTypeName($nb = 0)
     {
@@ -22,7 +23,7 @@ class PluginCreditalertProfile extends Profile
     {
         $migration->addRight(
             self::$rightname,
-            self::RIGHT_READ | self::RIGHT_CONFIG
+            self::RIGHT_READ | self::RIGHT_CONFIG | self::RIGHT_REASSIGN
         );
     }
 
@@ -74,6 +75,7 @@ class PluginCreditalertProfile extends Profile
                 'rights'   => [
                     self::RIGHT_READ   => __('View alerts', 'creditalert'),
                     self::RIGHT_CONFIG => __('Manage configuration', 'creditalert'),
+                    self::RIGHT_REASSIGN => __('Reassign credit in tickets', 'creditalert'),
                 ],
             ],
         ];
@@ -101,6 +103,7 @@ class PluginCreditalertProfile extends Profile
                 'rights'   => [
                     self::RIGHT_READ   => __('View alerts', 'creditalert'),
                     self::RIGHT_CONFIG => __('Manage configuration', 'creditalert'),
+                    self::RIGHT_REASSIGN => __('Reassign credit in tickets', 'creditalert'),
                 ],
             ],
         ];
@@ -135,7 +138,7 @@ class PluginCreditalertProfile extends Profile
     public static function createFirstAccess($profiles_id): void
     {
         self::addDefaultProfileInfos($profiles_id, [
-            self::RIGHTNAME => self::RIGHT_READ | self::RIGHT_CONFIG,
+            self::RIGHTNAME => self::RIGHT_READ | self::RIGHT_CONFIG | self::RIGHT_REASSIGN,
         ], true);
     }
 

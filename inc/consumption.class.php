@@ -63,6 +63,7 @@ class PluginCreditalertConsumption extends CommonDBTM
             'datatype'          => 'specific',
             'additionalfields'  => ['ticket_id', 'ticket_name'],
             'itemtype'          => $itemtype,
+            'massiveaction' => false,
         ];
 
         $tab[] = [
@@ -73,16 +74,18 @@ class PluginCreditalertConsumption extends CommonDBTM
             'datatype' => 'text',
             'additionalfields' => ['has_consumption'],
             'itemtype' => $itemtype,
+            'massiveaction' => false,
         ];
 
         $tab[] = [
             'id'            => self::OPT_ENTITY,
-            'table'         => $table,
-            'field'         => 'entities_id',
+            'table'         => 'glpi_entities',
+            'field'         => 'completename',
             'name'          => Entity::getTypeName(1),
             'datatype'      => 'dropdown',
             'itemlink_type' => Entity::class,
             'itemtype'      => $itemtype,
+            'massiveaction' => false,
         ];
 
         $tab[] = [
@@ -92,6 +95,7 @@ class PluginCreditalertConsumption extends CommonDBTM
             'name'     => __('Date de consommation', 'creditalert'),
             'datatype' => 'datetime',
             'itemtype' => $itemtype,
+            'massiveaction' => false,
         ];
 
         $tab[] = [
@@ -101,6 +105,7 @@ class PluginCreditalertConsumption extends CommonDBTM
             'name'     => __('Quantite consommee', 'creditalert'),
             'datatype' => 'number',
             'itemtype' => $itemtype,
+            'massiveaction' => false,
         ];
 
         $tab[] = [
@@ -110,6 +115,7 @@ class PluginCreditalertConsumption extends CommonDBTM
             'name'     => __('Statut', 'creditalert'),
             'datatype' => 'specific',
             'itemtype' => $itemtype,
+            'massiveaction' => false,
         ];
 
         $tab[] = [
@@ -119,6 +125,7 @@ class PluginCreditalertConsumption extends CommonDBTM
             'name'     => __('Date du ticket', 'creditalert'),
             'datatype' => 'datetime',
             'itemtype' => $itemtype,
+            'massiveaction' => false,
         ];
 
         $tab[] = [
@@ -130,6 +137,7 @@ class PluginCreditalertConsumption extends CommonDBTM
             'nosearch'  => true,
             'nodisplay' => true,
             'itemtype'  => $itemtype,
+            'massiveaction' => false,
         ];
 
         $tab[] = [
@@ -141,6 +149,7 @@ class PluginCreditalertConsumption extends CommonDBTM
             'nosearch'  => true,
             'nodisplay' => true,
             'itemtype'  => $itemtype,
+            'massiveaction' => false,
         ];
 
         return $tab;

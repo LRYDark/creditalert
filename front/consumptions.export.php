@@ -96,6 +96,29 @@ if (!empty($ticketIds)) {
     }
 }
 
+$normalize = static function ($value): string {
+    $text = html_entity_decode((string) $value, ENT_QUOTES, 'UTF-8');
+    $text = str_replace("\xC2\xA0", ' ', $text);
+    return trim($text);
+};
+
+$categoryPartsByIndex = [];
+$maxCategoryParts = 1;
+foreach ($rows as $index => $row) {
+    $categoryLabel = $normalize(Dropdown::getDropdownName('glpi_itilcategories', (int) ($row['itilcategories_id'] ?? 0)));
+    $parts = array_values(array_filter(
+        array_map('trim', explode('>', $categoryLabel)),
+        static function ($part) {
+            return $part !== '';
+        }
+    ));
+    if (empty($parts) && $categoryLabel !== '') {
+        $parts = [$categoryLabel];
+    }
+    $categoryPartsByIndex[$index] = $parts;
+    $maxCategoryParts = max($maxCategoryParts, count($parts));
+}
+
 $entityIdForExport = (int) ($rows[0]['entities_id'] ?? 0);
 $filename = PluginCreditalertConfig::getExportFilename($entityIdForExport);
 header('Content-Type: text/csv; charset=utf-8');
@@ -103,11 +126,31 @@ header('Content-Disposition: attachment; filename="' . $filename . '"');
 echo "\xEF\xBB\xBF";
 
 $out = fopen('php://output', 'w');
-$normalize = static function ($value): string {
-    $text = html_entity_decode((string) $value, ENT_QUOTES, 'UTF-8');
-    $text = str_replace("\xC2\xA0", ' ', $text);
-    return trim($text);
-};
+$categoryHeaders = [__('Categorie', 'creditalert')];
+for ($i = 1; $i < $maxCategoryParts; $i++) {
+    $categoryHeaders[] = sprintf(__('Sous categorie %d', 'creditalert'), $i);
+}
+$headers = [
+    __('N랍 Ticket', 'creditalert'),
+    __('Entite', 'creditalert'),
+    __('Type', 'creditalert'),
+    __('Statut du ticket', 'creditalert'),
+    __('Date d\'ouverture', 'creditalert'),
+    __('Temps de prise en compte', 'creditalert'),
+    __('Date de resolution', 'creditalert'),
+    __('Annee', 'creditalert'),
+    __('Temps Minutes', 'creditalert'),
+    __('Temps en attente', 'creditalert'),
+    __('Temps de resolution', 'creditalert'),
+];
+$headers = array_merge($headers, $categoryHeaders, [
+    __('Titre', 'creditalert'),
+    __('Taches - Description', 'creditalert'),
+    __('Credit consomme', 'creditalert'),
+    __('Credit associe au ticket', 'creditalert'),
+]);
+fputcsv($out, $headers, ';');
+if (false) {
 fputcsv($out, [
     __('N° Ticket', 'creditalert'),
     __('Entite', 'creditalert'),
@@ -126,11 +169,16 @@ fputcsv($out, [
     __('Credit consomme', 'creditalert'),
     __('Credit associe au ticket', 'creditalert'),
 ], ';');
+}
 
-foreach ($rows as $row) {
+foreach ($rows as $index => $row) {
     $ticketId = (int) ($row['ticket_id'] ?? 0);
     $entityName = $normalize(PluginCreditalertConfig::getEntityShortName((int) ($row['entities_id'] ?? 0)));
-    $categoryName = $normalize(Dropdown::getDropdownName('glpi_itilcategories', (int) ($row['itilcategories_id'] ?? 0)));
+    $categoryParts = $categoryPartsByIndex[$index] ?? [];
+    $categoryCells = [];
+    for ($i = 0; $i < $maxCategoryParts; $i++) {
+        $categoryCells[] = $categoryParts[$i] ?? '';
+    }
     $ticketType = Ticket::getTicketTypeName((int) ($row['ticket_type'] ?? 0));
     $ticketStatus = Ticket::getStatus((int) ($row['ticket_status'] ?? 0));
 
@@ -181,7 +229,7 @@ foreach ($rows as $row) {
     $tasks = $tasksByTicket[$ticketId] ?? [];
     $tasksText = implode(' | ', $tasks);
 
-    fputcsv($out, [
+    $rowValues = [
         $ticketId,
         $entityName,
         $ticketType,
@@ -193,12 +241,14 @@ foreach ($rows as $row) {
         $actiontimeMinutes,
         $waitingMinutes,
         $resolutionMinutes,
-        $categoryName,
+    ];
+    $rowValues = array_merge($rowValues, $categoryCells, [
         $normalize($row['ticket_title'] ?? ''),
         $tasksText,
         $row['consumed'] ?? '',
         $normalize($row['credit_label'] ?? ''),
-    ], ';');
+    ]);
+    fputcsv($out, $rowValues, ';');
 }
 
 fclose($out);

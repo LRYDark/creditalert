@@ -1,6 +1,6 @@
 <?php
 
-define('PLUGIN_CREDITALERT_VERSION', '1.0.0');
+define('PLUGIN_CREDITALERT_VERSION', '1.0.1');
 define('PLUGIN_CREDITALERT_MIN_GLPI', '10.0.0');
 define('PLUGIN_CREDITALERT_MAX_GLPI', '10.0.99');
 
@@ -37,6 +37,7 @@ function plugin_init_creditalert()
         $PLUGIN_HOOKS['menu_entries']['creditalert'] = true;
         $PLUGIN_HOOKS['submenu_entry']['creditalert']['search'] = 'front/creditlist.php';
         $PLUGIN_HOOKS['submenu_entry']['creditalert']['config'] = 'front/config.form.php';
+        $PLUGIN_HOOKS['timeline_actions']['creditalert'] = 'plugin_creditalert_timeline_actions';
     }
 }
 
