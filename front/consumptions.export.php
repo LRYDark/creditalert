@@ -131,7 +131,7 @@ for ($i = 1; $i < $maxCategoryParts; $i++) {
     $categoryHeaders[] = sprintf(__('Sous categorie %d', 'creditalert'), $i);
 }
 $headers = [
-    __('N랍 Ticket', 'creditalert'),
+    __('N° Ticket', 'creditalert'),
     __('Entite', 'creditalert'),
     __('Type', 'creditalert'),
     __('Statut du ticket', 'creditalert'),
