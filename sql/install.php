@@ -88,6 +88,29 @@ SQL;
             $DB->doQuery($query);
         }
 
+        $prefTable = 'glpi_plugin_creditalert_preferences';
+        if (!$DB->tableExists($prefTable)) {
+            $query = <<<SQL
+                CREATE TABLE `$prefTable` (
+                    `id` int $keySign NOT NULL auto_increment,
+                    `users_id` int $keySign NOT NULL DEFAULT '0',
+                    `assign_on_transfer` tinyint NOT NULL DEFAULT '1',
+                    `replace_on_transfer` tinyint NOT NULL DEFAULT '1',
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `users_id` (`users_id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC;
+SQL;
+            $DB->doQuery($query);
+        } else {
+            if (!$DB->fieldExists($prefTable, 'assign_on_transfer')) {
+                $migration->addField($prefTable, 'assign_on_transfer', 'bool', ['value' => 1]);
+            }
+            if (!$DB->fieldExists($prefTable, 'replace_on_transfer')) {
+                $migration->addField($prefTable, 'replace_on_transfer', 'bool', ['value' => 1]);
+            }
+            $migration->addKey($prefTable, 'users_id', 'users_id', 'UNIQUE');
+        }
+
         $notificationTable = 'glpi_plugin_creditalert_notifications';
         if (!$DB->tableExists($notificationTable)) {
             $query = <<<SQL
@@ -155,6 +178,7 @@ SQL;
         $migration = new Migration(PLUGIN_CREDITALERT_VERSION);
         $migration->dropTable('glpi_plugin_creditalert_cache');
         $migration->dropTable('glpi_plugin_creditalert_notifications');
+        $migration->dropTable('glpi_plugin_creditalert_preferences');
         $migration->dropTable('glpi_plugin_creditalert_entityconfigs');
         $migration->dropTable('glpi_plugin_creditalert_configs');
         $DB->doQuery("DROP VIEW IF EXISTS `glpi_plugin_creditalert_vcredits`;");

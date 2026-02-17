@@ -1,8 +1,8 @@
 <?php
 
-define('PLUGIN_CREDITALERT_VERSION', '1.0.1');
-define('PLUGIN_CREDITALERT_MIN_GLPI', '10.0.0');
-define('PLUGIN_CREDITALERT_MAX_GLPI', '10.0.99');
+define('PLUGIN_CREDITALERT_VERSION', '1.0.2');
+define('PLUGIN_CREDITALERT_MIN_GLPI', '11.0.0');
+define('PLUGIN_CREDITALERT_MAX_GLPI', '11.0.99');
 
 /**
  * Init hooks of the plugin.
@@ -30,6 +30,11 @@ function plugin_init_creditalert()
         Plugin::registerClass(
             PluginCreditalertConfig::class,
             ['addtabon' => 'Config'],
+        );
+
+        Plugin::registerClass(
+            PluginCreditalertPreference::class,
+            ['addtabon' => Preference::class],
         );
 
         $PLUGIN_HOOKS['config_page']['creditalert'] = '../../front/config.form.php?forcetab=' . urlencode('PluginCreditalertConfig$1');
@@ -68,8 +73,7 @@ function plugin_version_creditalert()
  *
  * @return bool
  */
-function plugin_creditalert_check_prerequisites()
-{
+function plugin_creditalert_check_prerequisites(){
     if (version_compare(GLPI_VERSION, PLUGIN_CREDITALERT_MIN_GLPI, '<')) {
         return false;
     }
@@ -78,11 +82,12 @@ function plugin_creditalert_check_prerequisites()
     }
 
     $plugin = new Plugin();
-    if (!$plugin->isInstalled('credit')) {
-        Session::addMessageAfterRedirect(__('Credit plugin must be installed to use CreditAlert', 'creditalert'), true, ERROR);
+    if ($plugin->isInstalled('credit') || $plugin->isActivated('credit')) {
+        return true;
+    } else {
+        echo "Le plugin de crédit doit être installé pour utiliser CreditAlert.";
         return false;
     }
-    return true;
 }
 
 /**

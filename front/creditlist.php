@@ -113,21 +113,20 @@ if ($view === 'credits') {
         }
         return (string) end($parts);
     };
-
     $creditsOptions = [];
     $creditsStatus = [];
     $creditsEntityDepth = [];
     $creditsEntityLabels = [];
     $creditsBeginLabels = [];
     $entityLabels = [];
-    $beginField = '';
-    foreach (['begin_date', 'date_begin', 'start_date'] as $candidate) {
-        if ($DB->fieldExists($creditListTable, $candidate)) {
-            $beginField = $candidate;
-            break;
-        }
-    }
     if ($entityId > 0) {
+        $beginField = '';
+        foreach (['begin_date', 'date_begin', 'start_date'] as $candidate) {
+            if ($DB->fieldExists($creditListTable, $candidate)) {
+                $beginField = $candidate;
+                break;
+            }
+        }
         $creditEntityScope = $entityScope ?: [$entityId];
         $query = [
             'SELECT' => [
@@ -187,7 +186,7 @@ if ($view === 'credits') {
                     $creditsStatus[$creditId] = 'active';
                 }
             }
-            if ($beginField !== '' && !empty($row['begin_date']) && !isset($creditsBeginLabels[$creditId])) {
+            if ($beginField !== '' && !isset($creditsBeginLabels[$creditId]) && !empty($row['begin_date'])) {
                 $ts = strtotime((string) $row['begin_date']);
                 if ($ts !== false) {
                     $creditsBeginLabels[$creditId] = date('m/Y', $ts);
@@ -238,7 +237,7 @@ if ($view === 'credits') {
         $creditFilterScriptLoaded = true;
         $activeLabel = json_encode(__('Actif', 'creditalert'));
         $inactiveLabel = json_encode(__('Inactif', 'creditalert'));
-        $beginLabel = json_encode(__('Date debut', 'creditalert'));
+        $beginLabel = json_encode(__('Date de debut', 'creditalert'));
         $js = <<<JS
 window.creditalertCreditFilterResult = function(item) {
     if (!item.id) {
@@ -252,9 +251,9 @@ window.creditalertCreditFilterResult = function(item) {
     if (item.element && item.element.dataset && item.element.dataset.entityLabel) {
         entityLabel = item.element.dataset.entityLabel;
     }
-    var beginLabelValue = '';
+    var beginValue = '';
     if (item.element && item.element.dataset && item.element.dataset.beginLabel) {
-        beginLabelValue = item.element.dataset.beginLabel;
+        beginValue = item.element.dataset.beginLabel;
     }
     var container = $('<span></span>');
     container.text(item.text);
@@ -266,7 +265,7 @@ window.creditalertCreditFilterResult = function(item) {
         }
         badge.text(text);
         container.append(' ').append(badge);
-    };
+        };
     if (entityLabel) {
         addBadge(entityLabel, 'background-color:#ffffff;color:#0d6efd;border:1px solid #0d6efd;');
     }
@@ -275,8 +274,8 @@ window.creditalertCreditFilterResult = function(item) {
     } else if (status === 'active') {
         addBadge({$activeLabel}, 'background-color:#ffffff;color:#1a7f37;border:1px solid #1a7f37;');
     }
-    if (beginLabelValue) {
-        addBadge({$beginLabel} + ' : ' + beginLabelValue, 'background-color:#ffffff;color:#343a40;border:1px solid #343a40;');
+    if (beginValue) {
+        addBadge({$beginLabel} + ' : ' + beginValue, 'background-color:#ffffff;color:#343a40;border:1px solid #343a40;');
     }
     return container;
 };
@@ -309,7 +308,7 @@ JS;
     }
     var statuses = {$statusJson};
     var entities = {$entityJson};
-    var begins = {$beginJson};
+    var beginLabels = {$beginJson};
     Object.keys(statuses).forEach(function(id) {
         var opt = select.querySelector('option[value="' + id + '"]');
         if (opt) {
@@ -322,12 +321,15 @@ JS;
             opt.dataset.entityLabel = entities[id];
         }
     });
-    Object.keys(begins).forEach(function(id) {
+    Object.keys(beginLabels).forEach(function(id) {
         var opt = select.querySelector('option[value="' + id + '"]');
         if (opt) {
-            opt.dataset.beginLabel = begins[id];
+            opt.dataset.beginLabel = beginLabels[id];
         }
     });
+    if (window.jQuery && $(select).data('select2')) {
+        $(select).trigger('change');
+    }
 })();
 JS;
         echo Html::scriptBlock($js);
@@ -356,50 +358,56 @@ JS;
         if ($entityId <= 0 || (empty($selectedCredits) && !$showOther)) {
             echo "<div class='alert alert-warning'>" . __('Veuillez selectionner une entite et au moins un credit.', 'creditalert') . "</div>";
         } else {
-            $searchParams = Search::manageParams(PluginCreditalertConsumption::class, $_GET);
-            $userCriteria = $searchParams['criteria'] ?? [];
-
-            $searchFormParams = $searchParams;
-            $searchFormParams['target'] = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php?view=consumptions';
-            $searchFormParams['addhidden'] = [
-                'view'        => 'consumptions',
-                'entities_id' => $entityId,
-                'date_begin'  => $dateBegin,
-                'date_end'    => $dateEnd,
-                'show_other'  => $showOther ? 1 : 0,
-                'credits_id'  => $selectedCredits,
-            ];
-            Search::showGenericSearch(PluginCreditalertConsumption::class, $searchFormParams);
-
-            $criteria = $userCriteria;
-
-            $entityCriteria = [];
-            $scopeIds = $entityScope ?: [$entityId];
-            foreach ($scopeIds as $scopeId) {
-                $entityCriteria[] = [
-                    'link'       => 'OR',
-                    'field'      => PluginCreditalertConsumption::OPT_ENTITY,
-                    'searchtype' => 'equals',
-                    'value'      => $scopeId,
-                    '_hidden'    => true,
-                ];
+            $searchParams = Search::manageParams(PluginCreditalertConsumption::class, $_GET, false);
+            $stripHiddenCriteria = static function (array $criteria) use (&$stripHiddenCriteria): array {
+                $visible = [];
+                foreach ($criteria as $criterion) {
+                    if (!is_array($criterion)) {
+                        continue;
+                    }
+                    if (!empty($criterion['_hidden'])) {
+                        continue;
+                    }
+                    if (isset($criterion['criteria']) && is_array($criterion['criteria'])) {
+                        $criterion['criteria'] = $stripHiddenCriteria($criterion['criteria']);
+                    }
+                    $visible[] = $criterion;
+                }
+                return $visible;
+            };
+            $userCriteria = $_GET['criteria'] ?? [];
+            if (!is_array($userCriteria)) {
+                $userCriteria = [];
             }
+            $criteria = $stripHiddenCriteria($userCriteria);
+            if (empty($criteria)) {
+                $criteria = \Glpi\Search\Input\QueryBuilder::getDefaultCriteria(PluginCreditalertConsumption::class);
+            }
+
             $criteria[] = [
-                'link'     => 'AND',
-                'criteria' => $entityCriteria,
-                '_hidden'  => true,
+                'link'       => 'AND',
+                'field'      => PluginCreditalertConsumption::OPT_ENTITY,
+                'searchtype' => 'under',
+                'value'      => $entityId,
+                '_hidden'    => true,
             ];
+
+            if (!empty($selectedCredits)) {
+                $_SESSION['plugin_creditalert']['credits_filter'] = $selectedCredits;
+            } else {
+                unset($_SESSION['plugin_creditalert']['credits_filter']);
+            }
 
             if (!empty($selectedCredits) || $showOther) {
                 $creditCriteria = [];
-                foreach ($selectedCredits as $creditId) {
+                if (!empty($selectedCredits)) {
                     $creditCriteria[] = [
                         'link'      => 'OR',
                         'field'     => PluginCreditalertConsumption::OPT_CREDIT_ID,
                         'searchtype'=> 'equals',
-                        'value'     => $creditId,
-                        '_hidden'   => true,
+                        'value'     => PluginCreditalertConsumption::CREDIT_FILTER_SESSION_TOKEN,
                         'virtual'   => true,
+                        '_hidden'   => true,
                     ];
                 }
                 if ($showOther) {
@@ -408,8 +416,8 @@ JS;
                         'field'     => PluginCreditalertConsumption::OPT_HAS_CONSUMPTION,
                         'searchtype'=> 'equals',
                         'value'     => 0,
-                        '_hidden'   => true,
                         'virtual'   => true,
+                        '_hidden'   => true,
                     ];
                 }
                 $criteria[] = [
@@ -508,9 +516,9 @@ JS;
                 }
             }
 
-            $searchParams['criteria'] = $criteria;
-            $searchParams['hide_controls'] = false;
-            $searchParams['hide_criteria'] = true;
+            $searchParams['criteria'] = array_values($criteria);
+            $searchParams['hide_criteria'] = false;
+            $_SESSION['glpisearch'][PluginCreditalertConsumption::class]['criteria'] = $searchParams['criteria'];
 
             $targetParams = [
                 'view'       => 'consumptions',
@@ -520,11 +528,42 @@ JS;
                 'date_end'   => $dateEnd,
                 'show_other' => $showOther ? 1 : 0,
             ];
-            foreach ($selectedCredits as $cid) {
-                $targetParams['credits_id'][] = $cid;
-            }
             $searchParams['target'] = $CFG_GLPI['root_doc']
                 . '/plugins/creditalert/front/creditlist.php?' . http_build_query($targetParams);
+            $searchParams['addhidden'] = $searchParams['addhidden'] ?? [];
+            $addHiddenCriteriaInputs = static function (array $criteria, string $prefix) use (&$addHiddenCriteriaInputs, &$searchParams): void {
+                foreach ($criteria as $index => $criterion) {
+                    if (!is_array($criterion)) {
+                        continue;
+                    }
+                    $isHidden = !empty($criterion['_hidden']);
+                    if ($isHidden) {
+                        $searchParams['addhidden'][$prefix . '[' . $index . '][_hidden]'] = 1;
+                    }
+                    if (isset($criterion['criteria']) && is_array($criterion['criteria'])) {
+                        $addHiddenCriteriaInputs($criterion['criteria'], $prefix . '[' . $index . '][criteria]');
+                    }
+                    if (!$isHidden) {
+                        continue;
+                    }
+                    foreach ($criterion as $key => $value) {
+                        if ($key === '_hidden' || $key === 'criteria') {
+                            continue;
+                        }
+                        if (is_array($value)) {
+                            continue;
+                        }
+                        $searchParams['addhidden'][$prefix . '[' . $index . '][' . $key . ']'] = $value;
+                    }
+                }
+            };
+            $addHiddenCriteriaInputs($searchParams['criteria'], 'criteria');
+            $redirectParams = $targetParams;
+            foreach ($selectedCredits as $cid) {
+                $redirectParams['credits_id'][] = $cid;
+            }
+            $redirectUrl = $CFG_GLPI['root_doc']
+                . '/plugins/creditalert/front/creditlist.php?' . http_build_query($redirectParams);
 
             $specificActions = [];
             if (Session::haveRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_CONFIG)) {
@@ -544,7 +583,7 @@ JS;
                     'hidden' => [
                         'entities_id' => $entityId,
                         'show_other'  => $showOther ? 1 : 0,
-                        'redirect'    => $searchParams['target'],
+                        'redirect'    => $redirectUrl,
                     ],
                 ],
             ];
@@ -559,35 +598,117 @@ JS;
                 PluginCreditalertConsumption::OPT_TICKET_DATE,
             ];
 
-            $data = Search::getDatas(PluginCreditalertConsumption::class, $searchParams, $forcedDisplay);
-            $allowedColumns = array_values(array_unique(array_map('intval', $forcedDisplay)));
-            if (isset($data['data']['cols'])) {
-                $data['data']['cols'] = array_values(array_filter(
-                    $data['data']['cols'],
-                    static function ($col) use ($allowedColumns) {
-                        return in_array((int) $col['id'], $allowedColumns, true);
-                    }
-                ));
+            echo "<div class='search_page row'>";
+            echo "<div class='col search-container' data-glpi-search-container>";
+            Search::showList(PluginCreditalertConsumption::class, $searchParams, $forcedDisplay);
+            $hiddenCriteriaInputs = [];
+            foreach ($searchParams['addhidden'] as $name => $value) {
+                if (strpos($name, 'criteria[') !== 0) {
+                    continue;
+                }
+                $hiddenCriteriaInputs[$name] = (string) $value;
             }
-            switch ($data['display_type']) {
-                case Search::CSV_OUTPUT:
-                case Search::PDF_OUTPUT_LANDSCAPE:
-                case Search::PDF_OUTPUT_PORTRAIT:
-                case Search::SYLK_OUTPUT:
-                case Search::NAMES_OUTPUT:
-                    Search::outputData($data);
-                    break;
-                case Search::GLOBAL_SEARCH:
-                case Search::HTML_OUTPUT:
-                default:
-                    Search::displayData($data);
-                    break;
+            if (!empty($hiddenCriteriaInputs)) {
+                $hiddenJson = json_encode($hiddenCriteriaInputs, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+                $js = <<<JS
+(function() {
+  var hidden = {$hiddenJson};
+  var container = document.querySelector('.search-container[data-glpi-search-container]');
+  if (!container) {
+    return;
+  }
+  var applyHidden = function() {
+    var forms = container.querySelectorAll('form.search-form-container');
+    forms.forEach(function(form) {
+      Object.keys(hidden).forEach(function(name) {
+        var selector = 'input[type="hidden"][name="' + CSS.escape(name) + '"]';
+        if (form.querySelector(selector)) {
+          return;
+        }
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = hidden[name];
+        form.appendChild(input);
+      });
+    });
+  };
+  applyHidden();
+  if (window.jQuery) {
+    $(document).on('search_refresh', 'table.search-results', function() {
+      applyHidden();
+    });
+  }
+})();
+JS;
+                echo Html::scriptBlock($js);
             }
+            $exportAllParams = $_GET;
+            unset($exportAllParams['creditalert_export'], $exportAllParams['creditalert_export_all']);
+            $exportAllParams['creditalert_export_all'] = 1;
+            $exportAllUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php';
+            if (!empty($exportAllParams)) {
+                $exportAllUrl .= '?' . http_build_query($exportAllParams);
+            }
+            $exportAllLabel = __('Exporter toutes les pages', 'creditalert');
+            $exportAllUrlJson = json_encode($exportAllUrl, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $exportAllLabelJson = json_encode($exportAllLabel, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $js = <<<JS
+(function() {
+  var exportUrl = {$exportAllUrlJson};
+  var exportLabel = {$exportAllLabelJson};
+  var insertButton = function() {
+    var container = document.querySelector('.search-container[data-glpi-search-container] .search-controls .secondary-controls');
+    if (!container) {
+      return;
+    }
+    if (container.querySelector('[data-creditalert-export-all]')) {
+      return;
+    }
+    var link = document.createElement('a');
+    link.href = exportUrl;
+    link.className = 'btn btn-sm btn-ghost-secondary me-1 me-xl-2';
+    link.setAttribute('data-creditalert-export-all', '1');
+    link.innerHTML = '<i class="ti ti-download"></i><span class="d-none d-xl-inline-block ms-1">' + exportLabel + '</span>';
+    container.prepend(link);
+  };
+  insertButton();
+  if (window.jQuery) {
+    $(document).on('search_refresh', 'table.search-results', function() {
+      insertButton();
+    });
+  }
+})();
+JS;
+            echo Html::scriptBlock($js);
+            echo "</div>";
+            echo "</div>";
             if ($showOther) {
                 PluginCreditalertConsumption::injectOtherTicketRowColors();
             }
 
+            $triggerExport = false;
+            if (isset($_GET['creditalert_export_all']) && (int) $_GET['creditalert_export_all'] === 1) {
+                $exportParams = $searchParams;
+                $exportParams['export_all'] = 1;
+                $exportParams['start'] = 0;
+                $exportParams['list_limit'] = 0;
+                $exportData = Search::getDatas(PluginCreditalertConsumption::class, $exportParams, $forcedDisplay);
+                $exportIds = array_keys($exportData['data']['items'] ?? []);
+                $exportIds = array_values(array_filter(array_map('intval', $exportIds)));
+                if (empty($exportIds)) {
+                    echo "<div class='alert alert-warning'>" . __('Aucun element selectionne.', 'creditalert') . "</div>";
+                } else {
+                    $_SESSION['plugin_creditalert']['export_consumptions'] = $exportIds;
+                    $triggerExport = true;
+                }
+            }
+
             if (isset($_GET['creditalert_export']) && (int) $_GET['creditalert_export'] === 1) {
+                $triggerExport = true;
+            }
+
+            if ($triggerExport) {
                 $exportUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/consumptions.export.php';
                 echo "<iframe src='" . Html::cleanInputText($exportUrl) . "' style='display:none' aria-hidden='true'></iframe>";
                 $js = <<<JS
@@ -596,8 +717,11 @@ JS;
     var url = new URL(window.location.href);
     if (url.searchParams.has('creditalert_export')) {
       url.searchParams.delete('creditalert_export');
-      window.history.replaceState({}, document.title, url.toString());
     }
+    if (url.searchParams.has('creditalert_export_all')) {
+      url.searchParams.delete('creditalert_export_all');
+    }
+    window.history.replaceState({}, document.title, url.toString());
   } catch (e) {}
 })();
 JS;

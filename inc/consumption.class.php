@@ -1,6 +1,6 @@
 <?php
 
-use Glpi\Toolbox\Sanitizer;
+use Glpi\DBAL\QueryExpression;
 use Glpi\Toolbox\URL;
 
 class PluginCreditalertConsumption extends CommonDBTM
@@ -9,6 +9,7 @@ class PluginCreditalertConsumption extends CommonDBTM
     public $table = 'glpi_plugin_creditalert_vconsumptions';
     public $no_auto_fields = true;
     private const SEARCH_BASE = 3000;
+    public const CREDIT_FILTER_SESSION_TOKEN = '__creditalert_credit_filter__';
     public const OPT_CREDIT_ID = self::SEARCH_BASE;
     public const OPT_TICKET = self::SEARCH_BASE + 1;
     public const OPT_CREDIT_LABEL = self::SEARCH_BASE + 2;
@@ -84,7 +85,8 @@ class PluginCreditalertConsumption extends CommonDBTM
             'name'          => Entity::getTypeName(1),
             'datatype'      => 'dropdown',
             'itemlink_type' => Entity::class,
-            'itemtype'      => $itemtype,
+            'itemtype'      => Entity::class,
+            'searchtype'    => ['contains', 'notcontains', 'equals', 'notequals'],
             'massiveaction' => false,
         ];
 
@@ -114,6 +116,7 @@ class PluginCreditalertConsumption extends CommonDBTM
             'field'    => 'ticket_status',
             'name'     => __('Statut', 'creditalert'),
             'datatype' => 'specific',
+            'searchtype' => 'equals',
             'itemtype' => $itemtype,
             'massiveaction' => false,
         ];
@@ -173,11 +176,7 @@ class PluginCreditalertConsumption extends CommonDBTM
                 $status = $values['name'] ?? $values ?? '';
                 return Ticket::getStatus((int) $status);
             case 'entities_id':
-                $entityId = $values;
-                if (is_array($values)) {
-                    $entityId = $values['name'] ?? $values['entities_id'] ?? $values['id'] ?? current($values);
-                }
-                return PluginCreditalertConfig::getEntityShortName((int) $entityId);
+                return PluginCreditalertConfig::getEntityShortName((int) $values);
             case 'credit_label':
                 $label = $values['name'] ?? $values['credit_label'] ?? $values ?? '';
                 $additional = $values['additionalfields'] ?? [];
@@ -189,6 +188,47 @@ class PluginCreditalertConsumption extends CommonDBTM
         }
 
         return parent::getSpecificValueToDisplay($field, $values, $options);
+    }
+
+    public static function getSpecificValueToSelect($field, $name = '', $values = '', array $options = [])
+    {
+        if (!is_array($values)) {
+            $values = [$field => $values];
+        }
+        $options['display'] = false;
+
+        switch ($field) {
+            case 'ticket_status':
+                $options['value'] = $values[$field] ?? '';
+                $choices = Ticket::getAllStatusArray();
+                return Dropdown::showFromArray($name, $choices, $options);
+        }
+
+        return parent::getSpecificValueToSelect($field, $name, $values, $options);
+    }
+
+    public static function addWhere($link, $nott, $itemtype, $ID, $searchtype, $value)
+    {
+        if ((int) $ID !== self::OPT_CREDIT_ID || $searchtype !== 'equals') {
+            return '';
+        }
+        if ($value !== self::CREDIT_FILTER_SESSION_TOKEN) {
+            return '';
+        }
+        $ids = $_SESSION['plugin_creditalert']['credits_filter'] ?? [];
+        if (!is_array($ids)) {
+            $ids = [];
+        }
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (empty($ids)) {
+            return '0=1';
+        }
+        $field = DBmysql::quoteName(self::getTable()) . '.' . DBmysql::quoteName('credit_id');
+        $values = array_map(static function ($id) {
+            return DBmysql::quoteValue($id);
+        }, $ids);
+        $operator = $nott ? 'NOT IN' : 'IN';
+        return $field . ' ' . $operator . ' (' . implode(', ', $values) . ')';
     }
 
     public static function injectOtherTicketRowColors(): void
@@ -383,10 +423,8 @@ JS;
             global $CFG_GLPI;
             $input = $ma->getInput();
             $redirect = '';
-            $rawRedirect = (string) ($input['redirect'] ?? '');
-            if ($rawRedirect !== '') {
-                $rawRedirect = \Glpi\Toolbox\Sanitizer::unsanitize($rawRedirect, false);
-                $redirect = URL::sanitizeURL($rawRedirect);
+            if (!empty($input['redirect'])) {
+                $redirect = URL::sanitizeURL((string) $input['redirect']);
             }
             if (empty($redirect)) {
                 $redirect = Html::getBackUrl();
@@ -556,13 +594,12 @@ JS;
             "$creditTable.$fieldClient AS name",
             "$creditTable.$fieldSold AS quantity_sold",
             "$creditTable.$fieldEntity AS credit_entity_id",
-            new \QueryExpression("COALESCE(SUM($consumptionTable.$fieldUsed), 0) AS consumed"),
+            new QueryExpression("COALESCE(SUM($consumptionTable.$fieldUsed), 0) AS consumed"),
         ];
         $groupby = [
             "$creditTable.id",
             "$creditTable.$fieldClient",
             "$creditTable.$fieldSold",
-            "$creditTable.$fieldEntity",
         ];
         if (!empty($fieldActive)) {
             $select[] = "$creditTable.$fieldActive AS is_active";

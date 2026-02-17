@@ -3,11 +3,13 @@
 class PluginCreditalertProfile extends Profile
 {
     public const RIGHTNAME = 'plugin_creditalert';
+    public const RIGHTNAME_TRANSFER = 'plugin_creditalert_transfer';
     public static $rightname = self::RIGHTNAME;
 
     public const RIGHT_READ   = 1024;
     public const RIGHT_CONFIG = 2048;
     public const RIGHT_REASSIGN = 4096;
+    public const RIGHT_TRANSFER = 1;
 
     public static function getTypeName($nb = 0)
     {
@@ -16,7 +18,7 @@ class PluginCreditalertProfile extends Profile
 
     public static function getIcon()
     {
-        return 'ti ti-alert-triangle';
+        return 'fa-solid fa-coins';
     }
 
     public static function install(Migration $migration): void
@@ -24,6 +26,10 @@ class PluginCreditalertProfile extends Profile
         $migration->addRight(
             self::$rightname,
             self::RIGHT_READ | self::RIGHT_CONFIG | self::RIGHT_REASSIGN
+        );
+        $migration->addRight(
+            self::RIGHTNAME_TRANSFER,
+            self::RIGHT_TRANSFER
         );
     }
 
@@ -33,7 +39,7 @@ class PluginCreditalertProfile extends Profile
         if ($DB->tableExists('glpi_profilerights')) {
             $DB->delete(
                 'glpi_profilerights',
-                ['name' => self::$rightname]
+                ['name' => [self::$rightname, self::RIGHTNAME_TRANSFER]]
             );
         }
     }
@@ -59,7 +65,11 @@ class PluginCreditalertProfile extends Profile
     public function showForm($ID, $options = [])
     {
         $canedit = Session::haveRight('profile', UPDATE);
-        self::addDefaultProfileInfos($ID, [self::RIGHTNAME => 0]);
+        ProfileRight::cleanAllPossibleRights();
+        self::addDefaultProfileInfos($ID, [
+            self::RIGHTNAME => 0,
+            self::RIGHTNAME_TRANSFER => 0,
+        ]);
 
         echo "<div class='spaced'>";
         $profile = new Profile();
@@ -83,6 +93,20 @@ class PluginCreditalertProfile extends Profile
         $matrix_options['canedit'] = $canedit;
         $profile->displayRightsChoiceMatrix($rights, $matrix_options);
 
+        $transfer_rights = [
+            [
+                'itemtype' => self::class,
+                'label'    => __('Transfert de ticket', 'creditalert'),
+                'field'    => self::RIGHTNAME_TRANSFER,
+                'rights'   => [
+                    self::RIGHT_TRANSFER => __('Transferer ticket', 'creditalert'),
+                ],
+            ],
+        ];
+        $matrix_options['title'] = __('Transfert de ticket', 'creditalert');
+        $matrix_options['canedit'] = $canedit;
+        $profile->displayRightsChoiceMatrix($transfer_rights, $matrix_options);
+
         echo "<div class='center'>";
         echo Html::hidden('id', ['value' => $ID]);
         echo Html::submit(_sx('button', 'Save'), ['name' => 'update']);
@@ -104,6 +128,14 @@ class PluginCreditalertProfile extends Profile
                     self::RIGHT_READ   => __('View alerts', 'creditalert'),
                     self::RIGHT_CONFIG => __('Manage configuration', 'creditalert'),
                     self::RIGHT_REASSIGN => __('Reassign credit in tickets', 'creditalert'),
+                ],
+            ],
+            [
+                'itemtype' => self::class,
+                'label'    => __('Transfert de ticket', 'creditalert'),
+                'field'    => self::RIGHTNAME_TRANSFER,
+                'rights'   => [
+                    self::RIGHT_TRANSFER => __('Transferer ticket', 'creditalert'),
                 ],
             ],
         ];
@@ -139,6 +171,7 @@ class PluginCreditalertProfile extends Profile
     {
         self::addDefaultProfileInfos($profiles_id, [
             self::RIGHTNAME => self::RIGHT_READ | self::RIGHT_CONFIG | self::RIGHT_REASSIGN,
+            self::RIGHTNAME_TRANSFER => self::RIGHT_TRANSFER,
         ], true);
     }
 
@@ -155,7 +188,10 @@ class PluginCreditalertProfile extends Profile
         }
 
         if (isset($_SESSION['glpiactiveprofile']['id'])) {
-            self::addDefaultProfileInfos($_SESSION['glpiactiveprofile']['id'], [self::RIGHTNAME => 0]);
+            self::addDefaultProfileInfos($_SESSION['glpiactiveprofile']['id'], [
+                self::RIGHTNAME => 0,
+                self::RIGHTNAME_TRANSFER => 0,
+            ]);
             foreach ($DB->request([
                 'FROM'  => 'glpi_profilerights',
                 'WHERE' => [

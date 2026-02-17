@@ -23,15 +23,6 @@ class PluginCreditalertCreditSummary extends CommonDBTM
         return 'glpi_plugin_creditalert_vcredits';
     }
 
-    public static function getSearchURL($full = true)
-    {
-        /** @var array $CFG_GLPI */
-        global $CFG_GLPI;
-
-        $base = $full ? $CFG_GLPI['root_doc'] : '';
-        return $base . '/plugins/creditalert/front/creditlist.php?view=credits';
-    }
-
     public function rawSearchOptions()
     {
         $tab = parent::rawSearchOptions();
@@ -67,7 +58,8 @@ class PluginCreditalertCreditSummary extends CommonDBTM
             'name'          => Entity::getTypeName(1),
             'datatype'      => 'dropdown',
             'itemlink_type' => Entity::class,
-            'itemtype'      => $itemtype,
+            'itemtype'      => Entity::class,
+            'searchtype'    => ['contains', 'notcontains', 'equals', 'notequals'],
         ];
 
         $tab[] = [
@@ -124,6 +116,7 @@ class PluginCreditalertCreditSummary extends CommonDBTM
             'name'     => __('Actif', 'creditalert'),
             'datatype' => 'specific',
             'searchtype' => 'equals',
+            'default'  => true,
             'itemtype' => $itemtype,
         ];
 
@@ -134,7 +127,6 @@ class PluginCreditalertCreditSummary extends CommonDBTM
             'name'          => __('Export CSV', 'creditalert'),
             'datatype'      => 'specific',
             'additionalfields' => ['id'],
-            'creditalert_export' => true,
             'massiveaction' => false,
             'nosearch'      => true,
             'itemtype'      => $itemtype,
@@ -145,8 +137,8 @@ class PluginCreditalertCreditSummary extends CommonDBTM
 
     public static function getSpecificValueToDisplay($field, $values, array $options = [])
     {
-        $searchopt = $options['searchopt'] ?? [];
-        if (!empty($searchopt['creditalert_export'])) {
+        $searchoptId = $options['searchopt']['id'] ?? null;
+        if ($searchoptId === self::SEARCH_BASE + 9) {
             $creditId = $values['additionalfields']['id'] ?? null;
             if (!$creditId) {
                 $creditId = self::extractCreditIdFromRaw($options, $values);
@@ -169,10 +161,10 @@ class PluginCreditalertCreditSummary extends CommonDBTM
                 $raw = $values['name'] ?? ($values['is_active'] ?? $values);
                 $active = ((int) $raw) === 1;
                 $label = $active ? __('Actif', 'creditalert') : __('Inactif', 'creditalert');
-                $class = $active ? 'bg-success' : 'bg-secondary';
-                return "<span class='badge {$class}'>{$label}</span>";
+                $class = $active ? 'badge bg-success text-white' : 'badge bg-secondary text-white';
+                return "<span class='{$class}'>{$label}</span>";
             case 'entities_id':
-                $entityId = $values['name'] ?? $values['entities_id'] ?? $values['id'] ?? current($values);
+                $entityId = $values['id'] ?? $values;
                 return PluginCreditalertConfig::getEntityShortName((int) $entityId);
             case 'quantity_used':
                 $quantity = $values['name'] ?? ($values['quantity_used'] ?? $values);

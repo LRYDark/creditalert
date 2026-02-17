@@ -7,7 +7,7 @@ class PluginCreditalertConfig extends CommonDBTM
 
     public static function getTypeName($nb = 0)
     {
-        return _n('Configuration des alertes de credit', 'Configurations des alertes de credit', $nb, 'creditalert');
+        return __('<span class="d-flex align-items-center"><i class="fa-solid fa-sliders me-2"></i>Configuration des alertes de credit</span>', "creditalert");
     }
 
     public static function getTable($classname = null)
@@ -71,7 +71,8 @@ class PluginCreditalertConfig extends CommonDBTM
     public function getTabNameForItem(CommonGLPI $item, $withtemplate = 0)
     {
         if ($item->getType() == 'Config') {
-            return self::createTabEntry(self::getTypeName(2));
+            //return self::createTabEntry(self::getTypeName(2));
+            return __('<span class="d-flex align-items-center"><i class="fa-solid fa-sliders me-2"></i>Configuration des alertes de credit</span>', "creditalert");
         }
         return '';
     }
@@ -221,24 +222,6 @@ class PluginCreditalertConfig extends CommonDBTM
         }
     }
 
-    private static function registerViewsInSearchCache(array $viewMap): void
-    {
-        /** @var array $CFG_GLPI */
-        global $CFG_GLPI;
-
-        if (!isset($CFG_GLPI['glpiitemtypetables']) || !is_array($CFG_GLPI['glpiitemtypetables'])) {
-            $CFG_GLPI['glpiitemtypetables'] = [];
-        }
-        if (!isset($CFG_GLPI['glpitablesitemtype']) || !is_array($CFG_GLPI['glpitablesitemtype'])) {
-            $CFG_GLPI['glpitablesitemtype'] = [];
-        }
-
-        foreach ($viewMap as $table => $itemtype) {
-            $CFG_GLPI['glpiitemtypetables'][$table] = $itemtype;
-            $CFG_GLPI['glpitablesitemtype'][$itemtype] = $table;
-        }
-    }
-
     public static function ensureViews(): void
     {
         /** @var DBmysql $DB */
@@ -251,18 +234,6 @@ class PluginCreditalertConfig extends CommonDBTM
         if (!self::viewExists($creditsView) || !self::viewExists($consumptionsView)) {
             $needsRefresh = true;
         } else {
-            $creditColumns = [];
-            foreach ($DB->request([
-                'SELECT' => ['column_name'],
-                'FROM'   => 'information_schema.columns',
-                'WHERE'  => [
-                    'table_schema' => $DB->dbdefault,
-                    'table_name'   => $creditsView,
-                ],
-            ]) as $row) {
-                $creditColumns[$row['column_name']] = true;
-            }
-
             $columns = [];
             foreach ($DB->request([
                 'SELECT' => ['column_name'],
@@ -277,8 +248,21 @@ class PluginCreditalertConfig extends CommonDBTM
             if (!isset($columns['has_consumption']) || !isset($columns['ticket_end_date'])) {
                 $needsRefresh = true;
             }
-            if (!isset($creditColumns['is_active'])) {
-                $needsRefresh = true;
+            if (!$needsRefresh) {
+                $creditColumns = [];
+                foreach ($DB->request([
+                    'SELECT' => ['column_name'],
+                    'FROM'   => 'information_schema.columns',
+                    'WHERE'  => [
+                        'table_schema' => $DB->dbdefault,
+                        'table_name'   => $creditsView,
+                    ],
+                ]) as $row) {
+                    $creditColumns[$row['column_name']] = true;
+                }
+                if (!isset($creditColumns['is_active'])) {
+                    $needsRefresh = true;
+                }
             }
         }
 
@@ -287,10 +271,6 @@ class PluginCreditalertConfig extends CommonDBTM
         }
 
         self::registerViewsInDbCache([$creditsView, $consumptionsView]);
-        self::registerViewsInSearchCache([
-            $creditsView => PluginCreditalertCreditSummary::class,
-            $consumptionsView => PluginCreditalertConsumption::class,
-        ]);
     }
 
     public static function refreshViews(?array $config = null): void
@@ -310,25 +290,34 @@ class PluginCreditalertConfig extends CommonDBTM
         $fieldEntity = self::sanitizeIdentifier($config['field_entity'] ?? $defaults['field_entity'], $defaults['field_entity']);
         $fieldClient = self::sanitizeIdentifier($config['field_client'] ?? $defaults['field_client'], $defaults['field_client']);
         $fieldFkUsage = self::sanitizeIdentifier($config['field_fk_usage'] ?? $defaults['field_fk_usage'], $defaults['field_fk_usage']);
-        $fieldActive = self::sanitizeIdentifier($config['field_is_active'] ?? $defaults['field_is_active'], $defaults['field_is_active'], true);
         $fieldEndDate = self::sanitizeIdentifier($config['field_end_date'] ?? $defaults['field_end_date'], $defaults['field_end_date'], true);
+        $fieldIsActive = self::sanitizeIdentifier($config['field_is_active'] ?? $defaults['field_is_active'], $defaults['field_is_active'], true);
         $fieldTicket = self::sanitizeIdentifier($config['field_ticket'] ?? $defaults['field_ticket'], $defaults['field_ticket'], true);
         if ($fieldTicket === '') {
             $fieldTicket = $defaults['field_ticket'];
         }
 
         $endDateExpr = $fieldEndDate !== '' ? "c.`{$fieldEndDate}`" : 'NULL';
-        $activeExpr = $fieldActive !== '' ? "c.`{$fieldActive}`" : '1';
+        $activeExpr = $fieldIsActive !== '' ? "c.`{$fieldIsActive}`" : '1';
         $quantitySoldExpr = "c.`{$fieldSold}`";
         $quantityUsedExpr = "COALESCE(SUM(ct.`{$fieldUsed}`), 0)";
         $percentageExpr = "CASE WHEN {$quantitySoldExpr} > 0 THEN ROUND(({$quantityUsedExpr} / {$quantitySoldExpr}) * 100, 2) ELSE 0 END";
         $thresholdExpr = "COALESCE(ec.alert_threshold, cfg.alert_threshold)";
+        $groupByParts = [
+            'c.id',
+            "c.`{$fieldEntity}`",
+            "c.`{$fieldClient}`",
+            "c.`{$fieldSold}`",
+            $endDateExpr,
+            'ec.alert_threshold',
+            'cfg.alert_threshold',
+        ];
+        if ($fieldIsActive !== '') {
+            $groupByParts[] = "c.`{$fieldIsActive}`";
+        }
+        $groupBy = implode(', ', $groupByParts);
 
         $viewCredits = 'glpi_plugin_creditalert_vcredits';
-        $creditsGroupBy = "c.id, c.`{$fieldEntity}`, c.`{$fieldClient}`, c.`{$fieldSold}`, {$endDateExpr}, ec.alert_threshold, cfg.alert_threshold";
-        if ($fieldActive !== '') {
-            $creditsGroupBy .= ", {$activeExpr}";
-        }
         $DB->doQuery("DROP VIEW IF EXISTS `{$viewCredits}`;");
         $DB->doQuery(
             "
@@ -355,7 +344,7 @@ class PluginCreditalertConfig extends CommonDBTM
                 ON ct.`{$fieldFkUsage}` = c.id
             LEFT JOIN glpi_plugin_creditalert_entityconfigs ec ON ec.entities_id = c.`{$fieldEntity}`
             CROSS JOIN (SELECT alert_threshold FROM glpi_plugin_creditalert_configs ORDER BY id ASC LIMIT 1) cfg
-            GROUP BY {$creditsGroupBy};
+            GROUP BY {$groupBy};
             "
         );
 

@@ -1,6 +1,6 @@
 <?php
 
-use Glpi\Toolbox\Sanitizer;
+use Glpi\DBAL\QueryExpression;
 
 class PluginCreditalertAlertTask extends CommonDBTM
 {
@@ -134,7 +134,7 @@ class PluginCreditalertAlertTask extends CommonDBTM
                     'last_status'      => $status,
                     'last_percentage'  => $percentage,
                     'last_hash'        => $hash,
-                    'last_notified_at' => new \QueryExpression('CURRENT_TIMESTAMP'),
+                    'last_notified_at' => new QueryExpression('CURRENT_TIMESTAMP'),
                 ],
                 ['plugin_credit_entities_id' => $creditId]
             );
@@ -148,7 +148,7 @@ class PluginCreditalertAlertTask extends CommonDBTM
                 'last_status'               => $status,
                 'last_percentage'           => $percentage,
                 'last_hash'                 => $hash,
-            'last_notified_at'          => new \QueryExpression('CURRENT_TIMESTAMP'),
+                'last_notified_at'          => new QueryExpression('CURRENT_TIMESTAMP'),
             ]
         );
     }
@@ -195,44 +195,18 @@ class PluginCreditalertAlertTask extends CommonDBTM
         }
 
         $mailer = new GLPIMailer();
-        if (method_exists($mailer, 'getEmail')) {
-            $email = $mailer->getEmail();
-            $email->subject($subject);
-            $email->text(implode(PHP_EOL, $bodyLines));
-
-            foreach ($recipients as $recipient) {
-                $email->addTo((string) $recipient);
-            }
-
-            if (!empty($CFG_GLPI['admin_email'])) {
-                $email->from($CFG_GLPI['admin_email']);
-            }
-
-            return $mailer->send();
-        }
-
-        $sender = Config::getEmailSender((int) ($credit['entities_id'] ?? 0));
-        if (!empty($sender['email'])) {
-            $mailer->SetFrom(
-                $sender['email'],
-                \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars((string) ($sender['name'] ?? '')),
-                false
-            );
-        } elseif (!empty($CFG_GLPI['admin_email'])) {
-            $mailer->SetFrom(
-                $CFG_GLPI['admin_email'],
-                \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars((string) ($CFG_GLPI['admin_email_name'] ?? '')),
-                false
-            );
-        }
+        $email = $mailer->getEmail();
+        $email->subject($subject);
+        $email->text(implode(PHP_EOL, $bodyLines));
 
         foreach ($recipients as $recipient) {
-            $mailer->AddAddress((string) $recipient);
+            $email->addTo((string) $recipient);
         }
 
-        $mailer->Subject = $subject;
-        $mailer->Body = implode(PHP_EOL, $bodyLines);
+        if (!empty($CFG_GLPI['admin_email'])) {
+            $email->from($CFG_GLPI['admin_email']);
+        }
 
-        return $mailer->Send();
+        return $mailer->send();
     }
 }
