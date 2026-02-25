@@ -16,6 +16,30 @@ Html::header(
 
 // Tabs: consumptions (view) and credits (view)
 $view = $_GET['view'] ?? ($_POST['view'] ?? 'consumptions');
+$normalizeIntList = static function ($values): array {
+    if (!is_array($values)) {
+        $values = [$values];
+    }
+    return array_values(array_filter(array_map('intval', $values)));
+};
+$expandEntityScope = static function (int $entityId): array {
+    static $sonsCache = [];
+
+    if ($entityId <= 0) {
+        return [];
+    }
+    if (!array_key_exists($entityId, $sonsCache)) {
+        $sons = getSonsOf('glpi_entities', $entityId);
+        if (!is_array($sons)) {
+            $sons = [$entityId];
+        }
+        $sonsCache[$entityId] = array_values(array_unique(array_filter(array_map('intval', $sons))));
+        if (empty($sonsCache[$entityId])) {
+            $sonsCache[$entityId] = [$entityId];
+        }
+    }
+    return $sonsCache[$entityId];
+};
 
 echo "<div class='card mb-3'><div class='card-body'>";
 echo "<ul class='nav nav-tabs' role='tablist'>";
@@ -48,21 +72,11 @@ if ($view === 'credits') {
     $dateEnd = $_GET['date_end'] ?? '';
     $showOther = !empty($_GET['show_other']);
     $selectedCredits = $_GET['credits_id'] ?? [];
-    if (!is_array($selectedCredits)) {
-        $selectedCredits = [$selectedCredits];
-    }
-    $selectedCredits = array_values(array_filter(array_map('intval', $selectedCredits)));
+    $selectedCredits = $normalizeIntList($selectedCredits);
 
     $entityScope = [];
     if ($entityId > 0) {
-        $entityScope = getSonsOf('glpi_entities', $entityId);
-        if (!is_array($entityScope)) {
-            $entityScope = [$entityId];
-        }
-        $entityScope = array_values(array_unique(array_filter(array_map('intval', $entityScope))));
-        if (empty($entityScope)) {
-            $entityScope = [$entityId];
-        }
+        $entityScope = $expandEntityScope($entityId);
     }
 
     $creditTable = $config['credit_table'];
@@ -695,7 +709,7 @@ JS;
                 $exportParams['list_limit'] = 0;
                 $exportData = Search::getDatas(PluginCreditalertConsumption::class, $exportParams, $forcedDisplay);
                 $exportIds = array_keys($exportData['data']['items'] ?? []);
-                $exportIds = array_values(array_filter(array_map('intval', $exportIds)));
+                $exportIds = $normalizeIntList($exportIds);
                 if (empty($exportIds)) {
                     echo "<div class='alert alert-warning'>" . __('Aucun element selectionne.', 'creditalert') . "</div>";
                 } else {

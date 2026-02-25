@@ -47,6 +47,15 @@ $errors = [];
 $selectedUsers = [];
 
 if (isset($_POST['transfer'])) {
+    // GLPI 11 may already validate CSRF on legacy front controllers before this file is executed.
+    // Avoid a second validation when a standard token is already present.
+    if (
+        empty($_POST['_glpi_csrf_token'])
+        || !defined('GLPI_VERSION')
+        || version_compare((string) GLPI_VERSION, '11.0.0', '<')
+    ) {
+        Session::checkCSRF($_POST, true);
+    }
     $assignOnTransfer = !empty($_POST['assign_on_transfer']);
     $replaceOnTransfer = !empty($_POST['replace_on_transfer']);
     if (!$assignOnTransfer) {

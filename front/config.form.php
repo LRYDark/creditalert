@@ -10,13 +10,23 @@ Session::checkRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfi
 
 $configItem = PluginCreditalertConfig::getInstance();
 $config = PluginCreditalertConfig::getConfig();
-$csrf_token = Session::getNewCSRFToken();
+$csrf_token = Session::getNewCSRFToken(true);
 
 $form_action = $configItem->getFormURL();
 if ($from_tab) {
     $form_action .= '?forcetab=' . urlencode('PluginCreditalertConfig$1');
 }
 $redirect = $form_action;
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    if (
+        empty($_POST['_glpi_csrf_token'])
+        || !defined('GLPI_VERSION')
+        || version_compare((string) GLPI_VERSION, '11.0.0', '<')
+    ) {
+        Session::checkCSRF($_POST, true);
+    }
+}
 
 if (isset($_POST['update'])) {
     PluginCreditalertConfig::updateConfig($_POST);

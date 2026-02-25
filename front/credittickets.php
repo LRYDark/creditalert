@@ -141,10 +141,30 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
         $text = str_replace("\xC2\xA0", ' ', $text);
         return trim($text);
     };
+    $getCategoryLabel = static function (int $categoryId) use ($normalize): string {
+        static $cache = [];
+        if ($categoryId <= 0) {
+            return '';
+        }
+        if (!array_key_exists($categoryId, $cache)) {
+            $cache[$categoryId] = $normalize(Dropdown::getDropdownName('glpi_itilcategories', $categoryId));
+        }
+        return (string) $cache[$categoryId];
+    };
+    $getEntityShortName = static function (int $entityId) use ($normalize): string {
+        static $cache = [];
+        if ($entityId <= 0) {
+            return '';
+        }
+        if (!array_key_exists($entityId, $cache)) {
+            $cache[$entityId] = $normalize(PluginCreditalertConfig::getEntityShortName($entityId));
+        }
+        return (string) $cache[$entityId];
+    };
     $categoryPartsByIndex = [];
     $maxCategoryParts = 1;
     foreach ($rows as $index => $row) {
-        $categoryLabel = $normalize(Dropdown::getDropdownName('glpi_itilcategories', (int) ($row['itilcategories_id'] ?? 0)));
+        $categoryLabel = $getCategoryLabel((int) ($row['itilcategories_id'] ?? 0));
         $parts = array_values(array_filter(
             array_map('trim', explode('>', $categoryLabel)),
             static function ($part) {
@@ -184,7 +204,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
 
     foreach ($rows as $index => $row) {
         $ticketId = (int) ($row['ticket_id'] ?? 0);
-        $entityName = $normalize(PluginCreditalertConfig::getEntityShortName((int) ($row['entities_id'] ?? 0)));
+        $entityName = $getEntityShortName((int) ($row['entities_id'] ?? 0));
         $categoryParts = $categoryPartsByIndex[$index] ?? [];
         $categoryCells = [];
         for ($i = 0; $i < $maxCategoryParts; $i++) {
