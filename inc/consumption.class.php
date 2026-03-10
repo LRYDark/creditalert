@@ -20,6 +20,7 @@ class PluginCreditalertConsumption extends CommonDBTM
     public const OPT_TICKET_DATE = self::SEARCH_BASE + 7;
     public const OPT_HAS_CONSUMPTION = self::SEARCH_BASE + 8;
     public const OPT_TICKET_END_DATE = self::SEARCH_BASE + 9;
+    public const OPT_TICKET_ID = self::SEARCH_BASE + 10;
 
     public static function getTypeName($nb = 0)
     {
@@ -65,6 +66,18 @@ class PluginCreditalertConsumption extends CommonDBTM
             'additionalfields'  => ['ticket_id', 'ticket_name'],
             'itemtype'          => $itemtype,
             'massiveaction' => false,
+        ];
+
+        $tab[] = [
+            'id'                => self::OPT_TICKET_ID,
+            'table'             => $table,
+            'field'             => 'ticket_id',
+            'name'              => __('ID du ticket', 'creditalert'),
+            'datatype'          => 'specific',
+            'additionalfields'  => ['ticket_id'],
+            'itemtype'          => $itemtype,
+            'nosearch'          => true,
+            'massiveaction'     => false,
         ];
 
         $tab[] = [
@@ -172,6 +185,13 @@ class PluginCreditalertConsumption extends CommonDBTM
                     return "<a href='{$url}'>" . Html::entities_deep($label) . "</a>";
                 }
                 return Html::entities_deep($label);
+            case 'ticket_id':
+                $ticketId = (int) ($values['additionalfields']['ticket_id'] ?? $values['ticket_id'] ?? $values['name'] ?? $values ?? 0);
+                if ($ticketId <= 0) {
+                    return '';
+                }
+                $url = Ticket::getFormURLWithID($ticketId);
+                return "<a href='{$url}'>" . $ticketId . "</a>";
             case 'ticket_status':
                 $status = $values['name'] ?? $values ?? '';
                 return Ticket::getStatus((int) $status);

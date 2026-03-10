@@ -603,6 +603,7 @@ JS;
             ];
 
             $forcedDisplay = [
+                PluginCreditalertConsumption::OPT_TICKET_ID,
                 PluginCreditalertConsumption::OPT_TICKET,
                 PluginCreditalertConsumption::OPT_CREDIT_LABEL,
                 PluginCreditalertConsumption::OPT_ENTITY,
