@@ -174,9 +174,12 @@ class PluginCreditalertAlertTask extends CommonDBTM
         ];
         $statusLabel = $labels[strtoupper($status)] ?? $status;
 
-        $entityLabel = Dropdown::getDropdownName('glpi_entities', $credit['entities_id']);
+        $entityLabel = html_entity_decode(Dropdown::getDropdownName('glpi_entities', $credit['entities_id']), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $entityParts = explode(' > ', $entityLabel);
+        $entityShort = trim(end($entityParts));
         $subject = sprintf(
-            '[CreditAlert] %s - %s',
+            '[CreditAlert] [%s] %s - %s',
+            $entityShort,
             $statusLabel,
             $credit['client_label']
         );
