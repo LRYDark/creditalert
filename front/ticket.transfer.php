@@ -190,8 +190,12 @@ if (isset($_POST['transfer'])) {
         foreach ($recipients as $recipient) {
             $email->addTo((string) $recipient);
         }
-        if (!empty($CFG_GLPI['admin_email'])) {
-            $email->from($CFG_GLPI['admin_email']);
+        $sender = Config::getEmailSender();
+        if (!empty($sender['email'])) {
+            $email->from(new \Symfony\Component\Mime\Address(
+                $sender['email'],
+                (string) ($sender['name'] ?? '')
+            ));
         }
 
         if ($mailer->send()) {
