@@ -21,6 +21,8 @@ class PluginCreditalertConsumption extends CommonDBTM
     public const OPT_HAS_CONSUMPTION = self::SEARCH_BASE + 8;
     public const OPT_TICKET_END_DATE = self::SEARCH_BASE + 9;
     public const OPT_TICKET_ID = self::SEARCH_BASE + 10;
+    public const OPT_TICKET_FILTER = self::SEARCH_BASE + 11;
+    public const TICKET_FILTER_SESSION_TOKEN = '__creditalert_ticket_filter__';
 
     public static function getTypeName($nb = 0)
     {
@@ -157,6 +159,18 @@ class PluginCreditalertConsumption extends CommonDBTM
         ];
 
         $tab[] = [
+            'id'            => self::OPT_TICKET_FILTER,
+            'table'         => $table,
+            'field'         => 'ticket_id',
+            'name'          => 'ticket_filter',
+            'datatype'      => 'number',
+            'massiveaction' => false,
+            'nosearch'      => true,
+            'nodisplay'     => true,
+            'itemtype'      => $itemtype,
+        ];
+
+        $tab[] = [
             'id'        => self::OPT_TICKET_END_DATE,
             'table'     => $table,
             'field'     => 'ticket_end_date',
@@ -229,26 +243,43 @@ class PluginCreditalertConsumption extends CommonDBTM
 
     public static function addWhere($link, $nott, $itemtype, $ID, $searchtype, $value)
     {
-        if ((int) $ID !== self::OPT_CREDIT_ID || $searchtype !== 'equals') {
-            return '';
+        $intId = (int) $ID;
+
+        if ($intId === self::OPT_CREDIT_ID && $searchtype === 'equals' && $value === self::CREDIT_FILTER_SESSION_TOKEN) {
+            $ids = $_SESSION['plugin_creditalert']['credits_filter'] ?? [];
+            if (!is_array($ids)) {
+                $ids = [];
+            }
+            $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+            if (empty($ids)) {
+                return '0=1';
+            }
+            $field = DBmysql::quoteName(self::getTable()) . '.' . DBmysql::quoteName('credit_id');
+            $values = array_map(static function ($id) {
+                return DBmysql::quoteValue($id);
+            }, $ids);
+            $operator = $nott ? 'NOT IN' : 'IN';
+            return $field . ' ' . $operator . ' (' . implode(', ', $values) . ')';
         }
-        if ($value !== self::CREDIT_FILTER_SESSION_TOKEN) {
-            return '';
+
+        if ($intId === self::OPT_TICKET_FILTER && $searchtype === 'equals' && $value === self::TICKET_FILTER_SESSION_TOKEN) {
+            $ids = $_SESSION['plugin_creditalert']['tickets_filter'] ?? [];
+            if (!is_array($ids)) {
+                $ids = [];
+            }
+            $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+            if (empty($ids)) {
+                return '0=1';
+            }
+            $field = DBmysql::quoteName(self::getTable()) . '.' . DBmysql::quoteName('ticket_id');
+            $values = array_map(static function ($id) {
+                return DBmysql::quoteValue($id);
+            }, $ids);
+            $operator = $nott ? 'NOT IN' : 'IN';
+            return $field . ' ' . $operator . ' (' . implode(', ', $values) . ')';
         }
-        $ids = $_SESSION['plugin_creditalert']['credits_filter'] ?? [];
-        if (!is_array($ids)) {
-            $ids = [];
-        }
-        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
-        if (empty($ids)) {
-            return '0=1';
-        }
-        $field = DBmysql::quoteName(self::getTable()) . '.' . DBmysql::quoteName('credit_id');
-        $values = array_map(static function ($id) {
-            return DBmysql::quoteValue($id);
-        }, $ids);
-        $operator = $nott ? 'NOT IN' : 'IN';
-        return $field . ' ' . $operator . ' (' . implode(', ', $values) . ')';
+
+        return '';
     }
 
     public static function injectOtherTicketRowColors(): void
@@ -322,14 +353,31 @@ JS;
             return parent::showMassiveActionsSubForm($ma);
         }
 
+        /** @var array $CFG_GLPI */
+        global $CFG_GLPI;
+
         $input = $ma->getInput();
         $entityId = (int) ($input['entities_id'] ?? ($_POST['entities_id'] ?? ($_GET['entities_id'] ?? 0)));
-        $credits = self::getCreditsForEntity($entityId);
 
+        // Entity selector
+        $entityRand = mt_rand();
         echo "<div class='mb-3'>";
+        echo "<label class='form-label mb-1'>" . __('Entite', 'creditalert') . "</label>";
+        Dropdown::show('Entity', [
+            'name'  => 'reassign_entity_id',
+            'value' => $entityId,
+            'rand'  => $entityRand,
+            'width' => '100%',
+        ]);
+        echo "</div>";
+
+        // Credit selector
+        $credits = self::getCreditsForEntity($entityId);
+        echo "<div class='mb-3' id='creditalert_reassign_credit_wrapper'>";
         echo "<label class='form-label mb-1'>" . __('Nouveau credit', 'creditalert') . "</label>";
         $selectId = 'creditalert_new_credit_' . mt_rand();
-        echo "<select name='new_credit_id' id='" . Html::cleanId($selectId) . "' class='form-select' style='width: 100%'>";
+        $selectIdClean = Html::cleanId($selectId);
+        echo "<select name='new_credit_id' id='{$selectIdClean}' class='form-select' style='width: 100%'>";
         echo "<option value=''>" . Dropdown::EMPTY_VALUE . "</option>";
         foreach ($credits as $creditId => $credit) {
             $attr = " data-active='" . ($credit['active'] ? '1' : '0') . "'";
@@ -351,6 +399,11 @@ JS;
             echo "</option>";
         }
         echo "</select>";
+        if (empty($credits)) {
+            echo "<div class='alert alert-warning mt-2 creditalert-no-credits'>" . __('Aucun credit trouve pour cette entite.', 'creditalert') . "</div>";
+        }
+        echo "</div>";
+
         static $scriptLoaded = false;
         if (!$scriptLoaded) {
             $scriptLoaded = true;
@@ -365,14 +418,14 @@ window.creditalertCreditBadgeResult = function(item) {
         return item.text;
     }
     var data = item.element && item.element.dataset ? item.element.dataset : {};
-    var container = $('<span></span>');
-    container.text(item.text);
+    var container = $('<span></span>').css({display:'inline-flex','flex-wrap':'wrap','align-items':'center','gap':'4px'});
+    container.append($('<span></span>').text(item.text));
     var addBadge = function(text, cls) {
         var badge = $('<span></span>');
-        badge.addClass('badge ms-2 ' + cls);
-        badge.css('color', '#ffffff');
+        badge.addClass('badge ' + cls);
+        badge.css({color:'#ffffff','font-size':'0.75em','white-space':'nowrap'});
         badge.text(text);
-        container.append(' ').append(badge);
+        container.append(badge);
     };
     if (data.entityLabel) {
         addBadge(data.entityLabel, 'bg-info');
@@ -399,17 +452,126 @@ window.creditalertCreditBadgeResult = function(item) {
 };
 
 window.creditalertCreditBadgeSelection = function(item) {
-    return creditalertCreditBadgeResult(item);
+    if (!item.id) {
+        return item.text;
+    }
+    var data = item.element && item.element.dataset ? item.element.dataset : {};
+    var container = $('<span></span>').css({display:'inline-flex','flex-wrap':'wrap','align-items':'center','gap':'4px','line-height':'1.4'});
+    container.append($('<span></span>').text(item.text));
+    var addBadge = function(text, cls) {
+        var badge = $('<span></span>');
+        badge.addClass('badge ' + cls);
+        badge.css({color:'#ffffff','font-size':'0.7em','white-space':'nowrap','vertical-align':'middle'});
+        badge.text(text);
+        container.append(badge);
+    };
+    if (data.entityLabel) {
+        addBadge(data.entityLabel, 'bg-info');
+    }
+    if (data.beginYear) {
+        addBadge({$labelBegin} + ' ' + data.beginYear, 'bg-primary');
+    }
+    if (data.expired === '1') {
+        var expireText = {$labelExpired};
+        if (data.expireDate) {
+            expireText += ' ' + data.expireDate;
+        }
+        addBadge(expireText, 'bg-danger');
+    }
+    if (data.active === '1') {
+        addBadge({$labelActive}, 'bg-success');
+    } else if (data.active === '0') {
+        addBadge({$labelInactive}, 'bg-secondary');
+    }
+    if (data.percent !== undefined && data.percent !== '') {
+        addBadge({$labelConsumed} + ' ' + data.percent + '%', 'bg-dark');
+    }
+    return container;
 };
 JS;
             echo Html::scriptBlock($js);
+            echo "<style>
+#creditalert_reassign_credit_wrapper .select2-container--default .select2-selection--single {
+    height: auto !important;
+    min-height: 38px;
+}
+#creditalert_reassign_credit_wrapper .select2-container--default .select2-selection--single .select2-selection__rendered {
+    white-space: normal !important;
+    line-height: 1.4;
+    padding: 4px 28px 4px 8px;
+}
+</style>";
         }
-        echo Html::jsAdaptDropdown($selectId, [
+        echo Html::jsAdaptDropdown($selectIdClean, [
             'width'             => '100%',
             'templateResult'    => 'creditalertCreditBadgeResult',
             'templateSelection' => 'creditalertCreditBadgeSelection',
         ]);
-        echo "</div>";
+
+        // JS: reload credits when entity changes
+        $ajaxUrl = json_encode($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/ajax/credits.php');
+        $emptyLabel = json_encode(Dropdown::EMPTY_VALUE);
+        $noCreditLabel = json_encode(__('Aucun credit trouve pour cette entite.', 'creditalert'));
+        $entitySelectId = json_encode('dropdown_reassign_entity_id' . $entityRand);
+        $creditSelectIdJson = json_encode($selectIdClean);
+        $js = <<<JS
+(function() {
+    var entitySelect = document.getElementById({$entitySelectId});
+    if (!entitySelect) return;
+    var onChange = function() {
+        var entityId = entitySelect.value || '0';
+        var creditSelect = document.getElementById({$creditSelectIdJson});
+        if (!creditSelect) return;
+        // Destroy select2 before modifying
+        if (window.jQuery && $(creditSelect).data('select2')) {
+            $(creditSelect).select2('destroy');
+        }
+        creditSelect.innerHTML = '<option value="">' + {$emptyLabel} + '</option>';
+        // Remove old no-credits warning
+        var wrapper = document.getElementById('creditalert_reassign_credit_wrapper');
+        var oldWarn = wrapper ? wrapper.querySelector('.creditalert-no-credits') : null;
+        if (oldWarn) oldWarn.remove();
+
+        fetch({$ajaxUrl} + '?entities_id=' + encodeURIComponent(entityId))
+            .then(function(r) { return r.json(); })
+            .then(function(credits) {
+                creditSelect.innerHTML = '<option value="">' + {$emptyLabel} + '</option>';
+                credits.forEach(function(c) {
+                    var opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = c.label;
+                    if (c.active !== undefined) opt.dataset.active = c.active ? '1' : '0';
+                    if (c.expired !== undefined) opt.dataset.expired = c.expired ? '1' : '0';
+                    if (c.begin_year) opt.dataset.beginYear = c.begin_year;
+                    if (c.expire_date) opt.dataset.expireDate = c.expire_date;
+                    if (c.percent) opt.dataset.percent = c.percent;
+                    if (c.entity_label) opt.dataset.entityLabel = c.entity_label;
+                    creditSelect.appendChild(opt);
+                });
+                if (credits.length === 0 && wrapper) {
+                    var warn = document.createElement('div');
+                    warn.className = 'alert alert-warning mt-2 creditalert-no-credits';
+                    warn.textContent = {$noCreditLabel};
+                    wrapper.appendChild(warn);
+                }
+                // Re-init select2
+                if (window.jQuery) {
+                    $(creditSelect).select2({
+                        width: '100%',
+                        templateResult: window.creditalertCreditBadgeResult,
+                        templateSelection: window.creditalertCreditBadgeSelection
+                    });
+                }
+            });
+    };
+    // Listen on both native and select2 change
+    entitySelect.addEventListener('change', onChange);
+    if (window.jQuery) {
+        $(entitySelect).on('change', onChange);
+    }
+})();
+JS;
+        echo Html::scriptBlock($js);
 
         echo Html::submit(__('Appliquer', 'creditalert'), ['name' => 'massiveaction', 'class' => 'btn btn-primary']);
         return true;
@@ -531,7 +693,7 @@ JS;
         }
     }
 
-    private static function getCreditsForEntity(int $entityId): array
+    public static function getCreditsForEntity(int $entityId): array
     {
         /** @var DBmysql $DB */
         global $DB;

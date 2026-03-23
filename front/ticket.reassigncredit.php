@@ -406,7 +406,7 @@ foreach ($DB->request([
     ];
 }
 
-echo "<div class='mb-3'>";
+echo "<div class='mb-3 creditalert-reassign-credit-wrapper'>";
 echo "<label class='form-label mb-1'>" . __('Nouveau credit', 'creditalert') . "</label>";
 $selectId = 'creditalert_new_credit_' . mt_rand();
 $selectIdClean = Html::cleanId($selectId);
@@ -441,14 +441,14 @@ window.creditalertReassignCreditResult = function(item) {
         return item.text;
     }
     var data = item.element && item.element.dataset ? item.element.dataset : {};
-    var container = $('<span></span>');
-    container.text(item.text);
+    var container = $('<span></span>').css({display:'inline-flex','flex-wrap':'wrap','align-items':'center','gap':'4px'});
+    container.append($('<span></span>').text(item.text));
     var addBadge = function(text, cls) {
         var badge = $('<span></span>');
-        badge.addClass('badge ms-2 ' + cls);
-        badge.css('color', '#ffffff');
+        badge.addClass('badge ' + cls);
+        badge.css({color:'#ffffff','font-size':'0.75em','white-space':'nowrap'});
         badge.text(text);
-        container.append(' ').append(badge);
+        container.append(badge);
     };
     if (data.entityLabel) {
         addBadge(data.entityLabel, 'bg-info');
@@ -463,10 +463,43 @@ window.creditalertReassignCreditResult = function(item) {
 };
 
 window.creditalertReassignCreditSelection = function(item) {
-    return creditalertReassignCreditResult(item);
+    if (!item.id) {
+        return item.text;
+    }
+    var data = item.element && item.element.dataset ? item.element.dataset : {};
+    var container = $('<span></span>').css({display:'inline-flex','flex-wrap':'wrap','align-items':'center','gap':'4px','line-height':'1.4'});
+    container.append($('<span></span>').text(item.text));
+    var addBadge = function(text, cls) {
+        var badge = $('<span></span>');
+        badge.addClass('badge ' + cls);
+        badge.css({color:'#ffffff','font-size':'0.7em','white-space':'nowrap','vertical-align':'middle'});
+        badge.text(text);
+        container.append(badge);
+    };
+    if (data.entityLabel) {
+        addBadge(data.entityLabel, 'bg-info');
+    }
+    if (data.beginYear) {
+        addBadge({$labelBegin} + ' ' + data.beginYear, 'bg-primary');
+    }
+    if (data.percent !== undefined && data.percent !== '') {
+        addBadge({$labelConsumed} + ' ' + data.percent + '%', 'bg-dark');
+    }
+    return container;
 };
 JS;
 echo Html::scriptBlock($js);
+echo "<style>
+.creditalert-reassign-credit-wrapper .select2-container--default .select2-selection--single {
+    height: auto !important;
+    min-height: 38px;
+}
+.creditalert-reassign-credit-wrapper .select2-container--default .select2-selection--single .select2-selection__rendered {
+    white-space: normal !important;
+    line-height: 1.4;
+    padding: 4px 28px 4px 8px;
+}
+</style>";
 echo Html::jsAdaptDropdown($selectIdClean, [
     'width'             => '100%',
     'templateResult'    => 'creditalertReassignCreditResult',

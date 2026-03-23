@@ -71,8 +71,20 @@ if ($view === 'credits') {
     $dateBegin = $_GET['date_begin'] ?? '';
     $dateEnd = $_GET['date_end'] ?? '';
     $showOther = !empty($_GET['show_other']);
+    $filterMode = $_GET['filter_mode'] ?? 'credits';
+    if (!in_array($filterMode, ['credits', 'tickets'], true)) {
+        $filterMode = 'credits';
+    }
     $selectedCredits = $_GET['credits_id'] ?? [];
     $selectedCredits = $normalizeIntList($selectedCredits);
+    $ticketIdsRaw = $_GET['ticket_ids'] ?? '';
+    $selectedTicketIds = [];
+    if (is_string($ticketIdsRaw) && $ticketIdsRaw !== '') {
+        $selectedTicketIds = array_values(array_unique(array_filter(
+            array_map('intval', preg_split('/[\s,;]+/', $ticketIdsRaw)),
+            static function ($v) { return $v > 0; }
+        )));
+    }
 
     $entityScope = [];
     if ($entityId > 0) {
@@ -242,7 +254,29 @@ if ($view === 'credits') {
     echo "</div>";
 
     echo "</div>";
-    echo "<div class='row g-3'>";
+
+    // Filter mode selector
+    echo "<div class='row g-3 mt-1'>";
+    echo "<div class='col-12'>";
+    echo "<label class='form-label mb-1'>" . __('Mode de filtre', 'creditalert') . "</label>";
+    echo "<div class='d-flex gap-3'>";
+    $checkedCredits = $filterMode === 'credits' ? ' checked' : '';
+    $checkedTickets = $filterMode === 'tickets' ? ' checked' : '';
+    echo "<div class='form-check'>";
+    echo "<input class='form-check-input' type='radio' name='filter_mode' id='filter_mode_credits' value='credits'{$checkedCredits} onchange=\"document.getElementById('creditalert_filter_credits').style.display='';document.getElementById('creditalert_filter_tickets').style.display='none';\">";
+    echo "<label class='form-check-label' for='filter_mode_credits'>" . __('Par credits', 'creditalert') . "</label>";
+    echo "</div>";
+    echo "<div class='form-check'>";
+    echo "<input class='form-check-input' type='radio' name='filter_mode' id='filter_mode_tickets' value='tickets'{$checkedTickets} onchange=\"document.getElementById('creditalert_filter_tickets').style.display='';document.getElementById('creditalert_filter_credits').style.display='none';\">";
+    echo "<label class='form-check-label' for='filter_mode_tickets'>" . __('Par tickets', 'creditalert') . "</label>";
+    echo "</div>";
+    echo "</div>";
+    echo "</div>";
+    echo "</div>";
+
+    // Credits filter (shown when mode is credits)
+    $displayCredits = $filterMode === 'credits' ? '' : 'display:none;';
+    echo "<div class='row g-3' id='creditalert_filter_credits' style='{$displayCredits}'>";
     echo "<div class='col-12 creditalert-credits-row'>";
     echo "<label class='form-label mb-1'>" . __('Credits', 'creditalert') . "</label>";
     $creditSelectRand = mt_rand();
@@ -350,7 +384,19 @@ JS;
     }
     echo "</div>";
 
+    echo "</div>"; // close creditalert_filter_credits
+
+    // Tickets filter (shown when mode is tickets)
+    $displayTickets = $filterMode === 'tickets' ? '' : 'display:none;';
+    $ticketIdsValue = Html::cleanInputText($ticketIdsRaw);
+    echo "<div class='row g-3' id='creditalert_filter_tickets' style='{$displayTickets}'>";
+    echo "<div class='col-12'>";
+    echo "<label class='form-label mb-1'>" . __('Liste des IDs de tickets (un par ligne)', 'creditalert') . "</label>";
+    echo "<textarea name='ticket_ids' class='form-control' rows='6' placeholder='59250&#10;59268&#10;59267&#10;...'>{$ticketIdsValue}</textarea>";
+    echo "<small class='text-muted'>" . __('Saisissez les IDs de tickets separes par des retours a la ligne, virgules ou espaces.', 'creditalert') . "</small>";
     echo "</div>";
+    echo "</div>";
+
     echo "<div class='row g-3'>";
     echo "<div class='col-md-6'>";
     echo "<div class='form-check mt-2'>";
@@ -369,9 +415,59 @@ JS;
     Html::closeForm();
 
     if (isset($_GET['search'])) {
-        if ($entityId <= 0 || (empty($selectedCredits) && !$showOther)) {
-            echo "<div class='alert alert-warning'>" . __('Veuillez selectionner une entite et au moins un credit.', 'creditalert') . "</div>";
+        // Validation depends on filter mode
+        $validSearch = false;
+        if ($filterMode === 'tickets') {
+            $validSearch = $entityId > 0 && !empty($selectedTicketIds);
         } else {
+            $validSearch = $entityId > 0 && (!empty($selectedCredits) || $showOther);
+        }
+
+        if (!$validSearch) {
+            if ($filterMode === 'tickets') {
+                echo "<div class='alert alert-warning'>" . __('Veuillez selectionner une entite et saisir au moins un ID de ticket.', 'creditalert') . "</div>";
+            } else {
+                echo "<div class='alert alert-warning'>" . __('Veuillez selectionner une entite et au moins un credit.', 'creditalert') . "</div>";
+            }
+        } else {
+            // For ticket filter mode: check entity match and show warnings
+            $ticketFilterWarnings = [];
+            $validTicketIds = [];
+            if ($filterMode === 'tickets' && !empty($selectedTicketIds)) {
+                foreach ($selectedTicketIds as $tid) {
+                    $ticket = new Ticket();
+                    if (!$ticket->getFromDB($tid)) {
+                        $ticketFilterWarnings[] = sprintf(
+                            __('Ticket %d exclu de la liste : ticket introuvable.', 'creditalert'),
+                            $tid
+                        );
+                        continue;
+                    }
+                    $ticketEntityId = (int) ($ticket->fields['entities_id'] ?? 0);
+                    if (!in_array($ticketEntityId, $entityScope, true)) {
+                        $ticketFilterWarnings[] = sprintf(
+                            __('Ticket %d exclu de la liste : ne correspond pas a l\'entite selectionnee.', 'creditalert'),
+                            $tid
+                        );
+                        continue;
+                    }
+                    $validTicketIds[] = $tid;
+                }
+                if (!empty($ticketFilterWarnings)) {
+                    echo "<div class='alert alert-info' style='margin-bottom:10px;'>";
+                    echo "<strong>" . __('Tickets exclus', 'creditalert') . " :</strong><ul class='mb-0 mt-1'>";
+                    foreach ($ticketFilterWarnings as $w) {
+                        echo "<li>" . Html::entities_deep($w) . "</li>";
+                    }
+                    echo "</ul></div>";
+                }
+                if (empty($validTicketIds)) {
+                    echo "<div class='alert alert-warning'>" . __('Aucun ticket valide ne correspond a l\'entite selectionnee.', 'creditalert') . "</div>";
+                    $validSearch = false;
+                }
+            }
+
+        if ($validSearch) {
             $searchParams = Search::manageParams(PluginCreditalertConsumption::class, $_GET, false);
             $stripHiddenCriteria = static function (array $criteria) use (&$stripHiddenCriteria): array {
                 $visible = [];
@@ -406,39 +502,61 @@ JS;
                 '_hidden'    => true,
             ];
 
-            if (!empty($selectedCredits)) {
-                $_SESSION['plugin_creditalert']['credits_filter'] = $selectedCredits;
-            } else {
+            if ($filterMode === 'tickets') {
+                // Ticket filter mode
+                $_SESSION['plugin_creditalert']['tickets_filter'] = $validTicketIds;
                 unset($_SESSION['plugin_creditalert']['credits_filter']);
-            }
-
-            if (!empty($selectedCredits) || $showOther) {
-                $creditCriteria = [];
-                if (!empty($selectedCredits)) {
-                    $creditCriteria[] = [
-                        'link'      => 'OR',
-                        'field'     => PluginCreditalertConsumption::OPT_CREDIT_ID,
-                        'searchtype'=> 'equals',
-                        'value'     => PluginCreditalertConsumption::CREDIT_FILTER_SESSION_TOKEN,
-                        'virtual'   => true,
-                        '_hidden'   => true,
-                    ];
-                }
-                if ($showOther) {
-                    $creditCriteria[] = [
-                        'link'      => 'OR',
-                        'field'     => PluginCreditalertConsumption::OPT_HAS_CONSUMPTION,
-                        'searchtype'=> 'equals',
-                        'value'     => 0,
-                        'virtual'   => true,
-                        '_hidden'   => true,
-                    ];
-                }
                 $criteria[] = [
                     'link'     => 'AND',
-                    'criteria' => $creditCriteria,
+                    'criteria' => [
+                        [
+                            'link'      => 'OR',
+                            'field'     => PluginCreditalertConsumption::OPT_TICKET_FILTER,
+                            'searchtype'=> 'equals',
+                            'value'     => PluginCreditalertConsumption::TICKET_FILTER_SESSION_TOKEN,
+                            'virtual'   => true,
+                            '_hidden'   => true,
+                        ],
+                    ],
                     '_hidden'  => true,
                 ];
+            } else {
+                // Credits filter mode
+                unset($_SESSION['plugin_creditalert']['tickets_filter']);
+                if (!empty($selectedCredits)) {
+                    $_SESSION['plugin_creditalert']['credits_filter'] = $selectedCredits;
+                } else {
+                    unset($_SESSION['plugin_creditalert']['credits_filter']);
+                }
+
+                if (!empty($selectedCredits) || $showOther) {
+                    $creditCriteria = [];
+                    if (!empty($selectedCredits)) {
+                        $creditCriteria[] = [
+                            'link'      => 'OR',
+                            'field'     => PluginCreditalertConsumption::OPT_CREDIT_ID,
+                            'searchtype'=> 'equals',
+                            'value'     => PluginCreditalertConsumption::CREDIT_FILTER_SESSION_TOKEN,
+                            'virtual'   => true,
+                            '_hidden'   => true,
+                        ];
+                    }
+                    if ($showOther) {
+                        $creditCriteria[] = [
+                            'link'      => 'OR',
+                            'field'     => PluginCreditalertConsumption::OPT_HAS_CONSUMPTION,
+                            'searchtype'=> 'equals',
+                            'value'     => 0,
+                            'virtual'   => true,
+                            '_hidden'   => true,
+                        ];
+                    }
+                    $criteria[] = [
+                        'link'     => 'AND',
+                        'criteria' => $creditCriteria,
+                        '_hidden'  => true,
+                    ];
+                }
             }
 
             if ($dateBegin !== '' || $dateEnd !== '') {
@@ -535,13 +653,17 @@ JS;
             $_SESSION['glpisearch'][PluginCreditalertConsumption::class]['criteria'] = $searchParams['criteria'];
 
             $targetParams = [
-                'view'       => 'consumptions',
-                'search'     => 1,
-                'entities_id'=> $entityId,
-                'date_begin' => $dateBegin,
-                'date_end'   => $dateEnd,
-                'show_other' => $showOther ? 1 : 0,
+                'view'        => 'consumptions',
+                'search'      => 1,
+                'entities_id' => $entityId,
+                'date_begin'  => $dateBegin,
+                'date_end'    => $dateEnd,
+                'show_other'  => $showOther ? 1 : 0,
+                'filter_mode' => $filterMode,
             ];
+            if ($filterMode === 'tickets') {
+                $targetParams['ticket_ids'] = $ticketIdsRaw;
+            }
             $searchParams['target'] = $CFG_GLPI['root_doc']
                 . '/plugins/creditalert/front/creditlist.php?' . http_build_query($targetParams);
             $searchParams['addhidden'] = $searchParams['addhidden'] ?? [];
@@ -573,8 +695,10 @@ JS;
             };
             $addHiddenCriteriaInputs($searchParams['criteria'], 'criteria');
             $redirectParams = $targetParams;
-            foreach ($selectedCredits as $cid) {
-                $redirectParams['credits_id'][] = $cid;
+            if ($filterMode === 'credits') {
+                foreach ($selectedCredits as $cid) {
+                    $redirectParams['credits_id'][] = $cid;
+                }
             }
             $redirectUrl = $CFG_GLPI['root_doc']
                 . '/plugins/creditalert/front/creditlist.php?' . http_build_query($redirectParams);
@@ -742,8 +866,9 @@ JS;
 JS;
                 echo Html::scriptBlock($js);
             }
-        }
-    }
-}
+        } // end if ($validSearch)
+        } // end else (!$validSearch)
+    } // end if (isset search)
+} // end else (consumptions view)
 
 Html::footer();

@@ -13,7 +13,7 @@ class PluginCreditalertProfile extends Profile
 
     public static function getTypeName($nb = 0)
     {
-        return _n('Credit alert', 'Credit alerts', $nb, 'creditalert');
+        return _n('Credit alert', 'Credit alerts / Transfert', $nb, 'creditalert');
     }
 
     public static function getIcon()
@@ -80,7 +80,7 @@ class PluginCreditalertProfile extends Profile
         $rights = [
             [
                 'itemtype' => self::class,
-                'label'    => self::getTypeName(2),
+                'label'    => "Credit alerts",
                 'field'    => self::$rightname,
                 'rights'   => [
                     self::RIGHT_READ   => __('View alerts', 'creditalert'),
@@ -89,7 +89,7 @@ class PluginCreditalertProfile extends Profile
                 ],
             ],
         ];
-        $matrix_options['title'] = self::getTypeName(2);
+        $matrix_options['title'] = "Credit alerts";
         $matrix_options['canedit'] = $canedit;
         $profile->displayRightsChoiceMatrix($rights, $matrix_options);
 
