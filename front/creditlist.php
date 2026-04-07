@@ -42,7 +42,7 @@ $expandEntityScope = static function (int $entityId): array {
 };
 
 echo "<div class='card mb-3'><div class='card-body'>";
-echo "<ul class='nav nav-tabs' role='tablist'>";
+echo "<ul class='nav nav-tabs' id='creditalert-tabs' role='tablist'>";
 $tabs = [
     'consumptions' => __('Consommations par client', 'creditalert'),
     'credits'      => __('Synthese des credits', 'creditalert'),
@@ -51,16 +51,31 @@ foreach ($tabs as $tabKey => $label) {
     $active = $view === $tabKey ? 'active' : '';
     $url = Html::cleanInputText($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php?view=' . $tabKey);
     echo "<li class='nav-item' role='presentation'>";
-    echo "<a class='nav-link $active' href='$url'>" . $label . "</a>";
+    echo "<a class='nav-link $active' href='$url' data-creditalert-tab>" . $label . "</a>";
     echo "</li>";
 }
 echo "</ul>";
 echo "</div></div>";
 
+// Navigation spinner: shows immediately when switching tabs
+echo Html::scriptBlock("
+    document.querySelectorAll('[data-creditalert-tab]').forEach(function(link) {
+        link.addEventListener('click', function() {
+            if (this.classList.contains('active')) return;
+            var overlay = document.createElement('div');
+            overlay.id = 'creditalert-nav-overlay';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;';
+            overlay.innerHTML = '<div class=\"spinner-border text-primary\" style=\"width:3rem;height:3rem;\" role=\"status\"></div>'
+                + '<p class=\"mt-3 text-muted\">" . addslashes(__('Chargement en cours...', 'creditalert')) . "</p>';
+            document.body.appendChild(overlay);
+        });
+    });
+");
+
 PluginCreditalertConfig::ensureViews();
 
 if ($view === 'credits') {
-    // Use search on SQL view (no cache)
+    // Search results (GLPI handles pagination with LIMIT)
     Search::show(PluginCreditalertCreditSummary::class);
 } else {
     $config = PluginCreditalertConfig::getConfig();

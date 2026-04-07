@@ -179,13 +179,15 @@ class PluginCreditalertCreditSummary extends CommonDBTM
                     $label   = Html::entities_deep((float) $quantity);
 
                     $modalId = 'creditalert_tickets_' . $creditId;
-                    $modal = Ajax::createIframeModalWindow(
+                    $modal = '<style>.modal-dialog.modal-xl-credit { max-width: 95vw; } .modal-xl-credit iframe { min-height: 80vh !important; }</style>';
+                    $modal .= Ajax::createIframeModalWindow(
                         $modalId,
                         $baseUrl,
                         [
                             'title'         => __('Consumed tickets', 'creditalert'),
                             'reloadonclose' => false,
                             'display'       => false,
+                            'dialog_class'  => 'modal-xl-credit',
                         ]
                     );
                     $link = "<a href='#' data-bs-toggle='modal' data-bs-target='#{$modalId}' title='" . __('Consumed tickets', 'creditalert') . "'>{$label}</a>";
