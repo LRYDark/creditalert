@@ -46,6 +46,7 @@ echo "<ul class='nav nav-tabs' id='creditalert-tabs' role='tablist'>";
 $tabs = [
     'consumptions' => __('Consommations par client', 'creditalert'),
     'credits'      => __('Synthese des credits', 'creditalert'),
+    'creditalert'  => __('Credit Alert', 'creditalert'),
 ];
 foreach ($tabs as $tabKey => $label) {
     $active = $view === $tabKey ? 'active' : '';
@@ -77,6 +78,379 @@ PluginCreditalertConfig::ensureViews();
 if ($view === 'credits') {
     // Search results (GLPI handles pagination with LIMIT)
     Search::show(PluginCreditalertCreditSummary::class);
+} elseif ($view === 'creditalert') {
+    /** @var DBmysql $DB */
+    global $DB;
+
+    $vcreditsTable  = 'glpi_plugin_creditalert_vcredits';
+
+    $activeEntities = $_SESSION['glpiactiveentities'] ?? [0];
+    if (!is_array($activeEntities)) {
+        $activeEntities = [(int) $activeEntities];
+    } else {
+        $activeEntities = array_map('intval', $activeEntities);
+    }
+    if (empty($activeEntities)) {
+        $activeEntities = [0];
+    }
+
+    // Filter params from GET
+    $caNames    = array_values(array_filter((array) ($_GET['ca_names'] ?? [])));
+    $caStatus   = in_array($_GET['ca_status'] ?? 'all', ['all', 'active', 'inactive'], true)
+                  ? (string) ($_GET['ca_status'] ?? 'all') : 'all';
+    $caSearch   = isset($_GET['ca_search']);
+    $caShowOver = !$caSearch || !empty($_GET['ca_show_over']);
+
+    // Unique credit names across all accessible entities (no duplicates)
+    $uniqueNames = [];
+    foreach ($DB->request([
+        'SELECT'  => ['client_label'],
+        'FROM'    => $vcreditsTable,
+        'WHERE'   => ['entities_id' => $activeEntities],
+        'GROUPBY' => ['client_label'],
+        'ORDER'   => ['client_label'],
+    ]) as $row) {
+        $uniqueNames[] = (string) $row['client_label'];
+    }
+    $namesOptions = empty($uniqueNames) ? [] : array_combine($uniqueNames, $uniqueNames);
+
+    // ── Filter form ──────────────────────────────────────────────────────────
+    $caFormAction = Html::cleanInputText($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php');
+    echo "<div class='card mb-3'><div class='card-body'>";
+    echo "<form method='get' action='{$caFormAction}'>";
+    echo Html::hidden('view', ['value' => 'creditalert']);
+
+    echo "<div class='row g-3 align-items-end'>";
+
+    echo "<div class='col-md-5'>";
+    echo "<label class='form-label mb-1'>" . __('Nom du credit', 'creditalert') . "</label>";
+    Dropdown::showFromArray('ca_names', $namesOptions, [
+        'multiple' => true,
+        'values'   => $caNames,
+        'width'    => '100%',
+        'disabled' => empty($namesOptions),
+    ]);
+    echo "</div>";
+
+    echo "<div class='col-md-2'>";
+    echo "<label class='form-label mb-1'>" . __('Afficher', 'creditalert') . "</label>";
+    echo "<select name='ca_status' class='form-select'>";
+    foreach ([
+        'all'      => __('Tous (actif et inactif)', 'creditalert'),
+        'active'   => __('Actif seulement', 'creditalert'),
+        'inactive' => __('Inactif seulement', 'creditalert'),
+    ] as $val => $label) {
+        $sel = $caStatus === $val ? ' selected' : '';
+        echo "<option value='" . htmlspecialchars($val) . "'{$sel}>" . htmlspecialchars($label) . "</option>";
+    }
+    echo "</select>";
+    echo "</div>";
+
+    echo "<div class='col-md-2'>";
+    echo "<label class='form-label mb-1'>" . __('Depassements', 'creditalert') . "</label>";
+    echo "<div class='form-check form-switch mt-1'>";
+    $caOverChecked = $caShowOver ? ' checked' : '';
+    echo "<input class='form-check-input' type='checkbox' role='switch' name='ca_show_over' id='ca_show_over_switch' value='1'{$caOverChecked} style='width:3em;height:1.5em;cursor:pointer;'>";
+    echo "<label class='form-check-label ms-2' for='ca_show_over_switch'>" . ($caShowOver ? __('Oui', 'creditalert') : __('Non', 'creditalert')) . "</label>";
+    echo "</div>";
+    echo "</div>";
+
+    echo "<div class='col-md-3'>";
+    echo "<label class='form-label mb-1'>" . __('Sauvegarder en favori', 'creditalert') . "</label>";
+    echo "<div class='input-group'>";
+    echo "<input type='text' id='ca_fav_name_input' class='form-control' placeholder='" . htmlspecialchars(__('Nom du favori...', 'creditalert')) . "'>";
+    echo "<button type='button' class='btn btn-outline-warning' onclick='creditalertSaveFav()'>";
+    echo "<i class='ti ti-star'></i> " . __('Sauvegarder', 'creditalert');
+    echo "</button>";
+    echo "</div>";
+    echo "</div>";
+
+    echo "</div>"; // row
+
+    echo "<div class='row g-3 mt-1 align-items-center'>";
+    echo "<div class='col-auto'><small class='text-muted fw-semibold'>" . __('Favoris :', 'creditalert') . "</small></div>";
+    echo "<div class='col' id='ca-fav-list'></div>";
+    echo "</div>";
+
+    echo "<div class='mt-3 text-end'>";
+    echo Html::submit(__('Rechercher', 'creditalert'), ['name' => 'ca_search', 'class' => 'btn btn-primary']);
+    echo "</div>";
+
+    Html::closeForm();
+    echo "</div></div>";
+
+    // ── Favorites JS (DB-backed via AJAX) ────────────────────────────────────
+    $caJsBaseUrl   = json_encode($caFormAction, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+    $caJsNames     = json_encode(array_values($caNames), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+    $caJsStatus    = json_encode($caStatus, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+    $caJsShowOver  = json_encode($caShowOver ? '1' : '0', JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+    $caJsNoName    = json_encode(__('Veuillez saisir un nom pour ce favori.', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+    $caJsNone      = addslashes(__('Aucun favori sauvegarde', 'creditalert'));
+    $caJsAjaxUrl   = json_encode(
+        Html::cleanInputText($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/ajax/favorites.php'),
+        JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT
+    );
+    $caJsCsrfToken = json_encode(Session::getNewCSRFToken(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+
+    echo Html::scriptBlock("
+(function() {
+    var ajaxUrl  = {$caJsAjaxUrl};
+    var baseUrl  = {$caJsBaseUrl};
+    var csrfToken = {$caJsCsrfToken};
+    var favCache = null;
+
+    function escH(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
+    }
+
+    function renderFavs(favs) {
+        favCache = favs;
+        var el = document.getElementById('ca-fav-list');
+        if (!el) return;
+        if (!favs.length) {
+            el.innerHTML = '<span class=\"text-muted small\">{$caJsNone}</span>';
+            return;
+        }
+        el.innerHTML = '';
+        favs.forEach(function(fav) {
+            var span = document.createElement('span');
+            span.className = 'badge bg-warning text-dark me-1 d-inline-flex align-items-center gap-1';
+            span.innerHTML = '<span style=\"cursor:pointer\" onclick=\"creditalertLoadFav(' + fav.id + ')\" title=\"Charger ce filtre\">' + escH(fav.name) + '</span>'
+                + ' <span style=\"cursor:pointer;font-size:1.1em;line-height:1\" onclick=\"creditalertDelFav(' + fav.id + ')\" title=\"Supprimer\">&times;</span>';
+            el.appendChild(span);
+        });
+    }
+
+    var ajaxHeaders = {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Glpi-Csrf-Token': csrfToken
+    };
+
+    function ajaxGet(url) {
+        return fetch(url, { credentials: 'same-origin', headers: ajaxHeaders });
+    }
+
+    function ajaxPost(url, data) {
+        return fetch(url, { method: 'POST', credentials: 'same-origin', headers: ajaxHeaders, body: data });
+    }
+
+    function loadFavs() {
+        ajaxGet(ajaxUrl + '?action=list')
+            .then(function(r) { return r.json(); })
+            .then(function(data) { renderFavs(Array.isArray(data) ? data : []); })
+            .catch(function() { renderFavs([]); });
+    }
+
+    window.creditalertSaveFav = function() {
+        var inp  = document.getElementById('ca_fav_name_input');
+        var name = inp ? inp.value.trim() : '';
+        if (!name) { alert({$caJsNoName}); return; }
+        var names    = {$caJsNames};
+        var status   = {$caJsStatus};
+        var showOver = {$caJsShowOver};
+        if (window.jQuery) {
+            var sel = jQuery('select[name=\"ca_names[]\"]');
+            if (sel.length) { names = sel.val() || []; }
+        }
+        var switchEl = document.getElementById('ca_show_over_switch');
+        if (switchEl) { showOver = switchEl.checked ? '1' : '0'; }
+        var body = new FormData();
+        body.append('action', 'save');
+        body.append('name', name);
+        body.append('ca_status', status);
+        body.append('ca_show_over', showOver);
+        names.forEach(function(n) { body.append('ca_names[]', n); });
+        ajaxPost(ajaxUrl, body)
+            .then(function(r) { return r.json(); })
+            .then(function() { loadFavs(); })
+            .catch(function() {});
+        if (inp) inp.value = '';
+    };
+
+    window.creditalertLoadFav = function(id) {
+        if (!favCache) return;
+        var fav = favCache.find(function(f) { return f.id === id; });
+        if (!fav) return;
+        var url = new URL(baseUrl, window.location.origin);
+        url.searchParams.set('view', 'creditalert');
+        url.searchParams.set('ca_status', fav.ca_status || 'all');
+        url.searchParams.set('ca_search', '1');
+        if (fav.ca_show_over !== undefined) {
+            if (fav.ca_show_over === '1' || fav.ca_show_over === 1) {
+                url.searchParams.set('ca_show_over', '1');
+            } else {
+                url.searchParams.delete('ca_show_over');
+            }
+        }
+        url.searchParams.delete('ca_names[]');
+        if (fav.ca_names && fav.ca_names.length) {
+            fav.ca_names.forEach(function(n) { url.searchParams.append('ca_names[]', n); });
+        }
+        window.location.href = url.toString();
+    };
+
+    window.creditalertDelFav = function(id) {
+        var body = new FormData();
+        body.append('action', 'delete');
+        body.append('id', id);
+        ajaxPost(ajaxUrl, body)
+            .then(function() { loadFavs(); })
+            .catch(function() {});
+    };
+
+    loadFavs();
+})();
+");
+
+    // ── Results table ─────────────────────────────────────────────────────────
+    if ($caSearch) {
+        $caWhere = ['entities_id' => $activeEntities];
+        if (!empty($caNames)) {
+            $caWhere['client_label'] = $caNames;
+        }
+        if ($caStatus === 'active') {
+            $caWhere['is_active'] = 1;
+        } elseif ($caStatus === 'inactive') {
+            $caWhere['is_active'] = 0;
+        }
+        if (!$caShowOver) {
+            $caWhere[] = new \Glpi\DBAL\QueryExpression('`quantity_used` <= `quantity_sold`');
+        }
+
+        $caRows = [];
+        foreach ($DB->request([
+            'SELECT' => '*',
+            'FROM'   => $vcreditsTable,
+            'WHERE'  => $caWhere,
+        ]) as $caRow) {
+            $caRows[] = $caRow;
+        }
+
+        $caNow         = time();
+        $caOneMonth    = 30 * 24 * 3600;
+        $caThreeMonths = 90 * 24 * 3600;
+
+        // Priority: 1=red, 2=orange, 3=purple, 4=normal, 5=green
+        $caPriority = static function (array $row) use ($caNow, $caOneMonth, $caThreeMonths): int {
+            $consumed = (float) ($row['quantity_used'] ?? 0);
+            $sold     = (float) ($row['quantity_sold'] ?? 0);
+            $endDate  = (string) ($row['end_date'] ?? '');
+            $endTs    = (!empty($endDate) && strpos($endDate, '0000') === false) ? strtotime($endDate) : false;
+            $diff     = $endTs !== false ? $endTs - $caNow : null;
+
+            if ($consumed > $sold) {
+                return 3;
+            }
+            if ($consumed == $sold) {
+                return 5;
+            }
+            // consumed < sold
+            if ($diff !== null) {
+                if ($diff >= 0 && $diff <= $caOneMonth)    return 1;
+                if ($diff >= 0 && $diff <= $caThreeMonths) return 2;
+            }
+            return 4;
+        };
+
+        usort($caRows, static function (array $a, array $b) use ($caPriority): int {
+            $pa = $caPriority($a);
+            $pb = $caPriority($b);
+            if ($pa !== $pb) return $pa - $pb;
+            return strcmp((string) ($a['client_label'] ?? ''), (string) ($b['client_label'] ?? ''));
+        });
+
+        echo Html::scriptBlock("
+if (!document.getElementById('ca-alert-style')) {
+    var s = document.createElement('style');
+    s.id = 'ca-alert-style';
+    s.textContent = '.ca-row-purple{background-color:#cfe2ff!important;}'
+        + '.ca-row-purple td{color:#084298!important;}';
+    document.head.appendChild(s);
+}
+");
+
+        $fmtNum = static function (float $n): string {
+            return fmod($n, 1.0) == 0.0
+                ? number_format($n, 0, ',', ' ')
+                : number_format($n, 2, ',', ' ');
+        };
+
+        echo "<div class='card'><div class='card-body p-0'><div class='table-responsive'>";
+        echo "<table id='ca-results-table' class='table table-hover table-bordered mb-0'>";
+        echo "<thead class='table-dark'><tr>";
+        echo "<th>" . __('Entite', 'creditalert') . "</th>";
+        echo "<th>" . __('Nom du credit', 'creditalert') . "</th>";
+        echo "<th class='text-end'>" . __('Consomme', 'creditalert') . "</th>";
+        echo "<th class='text-end'>" . __('Vendu', 'creditalert') . "</th>";
+        echo "<th>" . __('Date de fin', 'creditalert') . "</th>";
+        echo "<th>" . __('Statut', 'creditalert') . "</th>";
+        echo "</tr></thead><tbody>";
+
+        if (empty($caRows)) {
+            echo "<tr><td colspan='6' class='text-center text-muted py-3'>" . __('Aucun resultat.', 'creditalert') . "</td></tr>";
+        } else {
+            foreach ($caRows as $caRow) {
+                $caEntityId   = (int) ($caRow['entities_id'] ?? 0);
+                $caEntityName = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+                    Dropdown::getDropdownName('glpi_entities', $caEntityId)
+                );
+                $caCreditName = (string) ($caRow['client_label'] ?? '');
+                $caConsumed   = (float) ($caRow['quantity_used'] ?? 0);
+                $caSold       = (float) ($caRow['quantity_sold'] ?? 0);
+                $caEndDate    = (string) ($caRow['end_date'] ?? '');
+                $caIsActive   = (int) ($caRow['is_active'] ?? 1);
+
+                // Parse end date
+                $caEndTs    = null;
+                $caDiff     = null;
+                $caDateLbl  = '-';
+                if (!empty($caEndDate) && strpos($caEndDate, '0000') === false) {
+                    $caEndTs = strtotime($caEndDate);
+                    if ($caEndTs !== false) {
+                        $caDiff    = $caEndTs - $caNow;
+                        $caDateLbl = date('d/m/Y', $caEndTs);
+                    }
+                }
+
+                // Color logic:
+                // consumed > sold  → blinking purple (regardless of date)
+                // consumed == sold → green (all consumed, contract OK)
+                // consumed < sold  → orange (3 months) or red (1 month) based on end date
+                //                    orange/red only when consumed != sold
+                $caRowAttr   = '';
+                $caDateStyle = '';
+
+                if ($caConsumed > $caSold) {
+                    $caRowAttr = " class='ca-row-purple'";
+                } elseif ($caConsumed == $caSold) {
+                    $caRowAttr = " class='table-success'";
+                } elseif ($caDiff !== null) {
+                    if ($caDiff >= 0 && $caDiff <= $caOneMonth) {
+                        $caRowAttr   = " class='table-danger'";
+                        $caDateStyle = " style='color:#dc3545;font-weight:bold;'";
+                    } elseif ($caDiff >= 0 && $caDiff <= $caThreeMonths) {
+                        $caRowAttr   = " class='table-warning'";
+                        $caDateStyle = " style='color:#fd7e14;font-weight:bold;'";
+                    }
+                }
+
+                $caActiveBadge = $caIsActive
+                    ? "<span class='badge text-bg-success'>" . __('Actif', 'creditalert') . "</span>"
+                    : "<span class='badge text-bg-secondary'>" . __('Inactif', 'creditalert') . "</span>";
+
+                echo "<tr{$caRowAttr}>";
+                echo "<td>" . Html::entities_deep($caEntityName) . "</td>";
+                echo "<td>" . Html::entities_deep($caCreditName) . "</td>";
+                echo "<td class='text-end'>" . $fmtNum($caConsumed) . "</td>";
+                echo "<td class='text-end'>" . $fmtNum($caSold) . "</td>";
+                echo "<td{$caDateStyle}>" . htmlspecialchars($caDateLbl) . "</td>";
+                echo "<td>{$caActiveBadge}</td>";
+                echo "</tr>";
+            }
+        }
+
+        echo "</tbody></table></div></div></div>";
+    }
 } else {
     $config = PluginCreditalertConfig::getConfig();
     /** @var DBmysql $DB */
