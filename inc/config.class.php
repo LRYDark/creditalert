@@ -70,9 +70,11 @@ class PluginCreditalertConfig extends CommonDBTM
 
     public function getTabNameForItem(CommonGLPI $item, $withtemplate = 0)
     {
-        if ($item->getType() == 'Config') {
-            //return self::createTabEntry(self::getTypeName(2));
-            return __('<span class="d-flex align-items-center"><i class="fa-solid fa-sliders me-2"></i>Configuration des alertes de credit</span>', "creditalert");
+        if (
+            $item->getType() == 'Config'
+            && Session::haveRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_CONFIG)
+        ) {
+            return self::createTabEntry(__('Configuration des alertes de credit', 'creditalert'), 0, null, 'fa-solid fa-sliders');
         }
         return '';
     }
@@ -94,6 +96,59 @@ class PluginCreditalertConfig extends CommonDBTM
         $GLOBALS['PLUGIN_CREDITALERT_FROM_TAB'] = true;
         include __DIR__ . '/../front/config.form.php';
         unset($GLOBALS['PLUGIN_CREDITALERT_FROM_TAB']);
+    }
+
+    /**
+     * Render the per-entity thresholds table (reused by the config page and the
+     * AJAX endpoint to refresh in place).
+     */
+    public static function renderEntityThresholdsTable(): string
+    {
+        $rows = PluginCreditalertEntityConfig::getAllConfigs();
+
+        if (empty($rows)) {
+            return "<div class='alert alert-info mb-0'>"
+                . htmlescape(__('Aucun seuil par entite defini.', 'creditalert'))
+                . "</div>";
+        }
+
+        $html  = "<div class='table-responsive'>";
+        $html .= "<table class='table table-hover align-middle'>";
+        $html .= "<thead><tr>";
+        $html .= "<th>" . htmlescape(Entity::getTypeName(1)) . "</th>";
+        $html .= "<th>" . htmlescape(__('Seuil', 'creditalert')) . "</th>";
+        $html .= "<th>" . htmlescape(__('Emails', 'creditalert')) . "</th>";
+        $html .= "<th class='text-end'>" . htmlescape(__('Actions')) . "</th>";
+        $html .= "</tr></thead><tbody>";
+
+        foreach ($rows as $row) {
+            $eid = (int) $row['entities_id'];
+            $isInherit = $row['alert_threshold'] === null || $row['alert_threshold'] === '';
+            $thrLabel = $isInherit ? __('Herite', 'creditalert') : (intval($row['alert_threshold']) . '%');
+            $thrAttr = $isInherit ? '' : (string) intval($row['alert_threshold']);
+            $emails = (string) ($row['notification_emails'] ?? '');
+            $name = (string) Dropdown::getDropdownName('glpi_entities', $eid);
+
+            $html .= "<tr>";
+            $html .= "<td>" . htmlescape($name) . "</td>";
+            $html .= "<td>" . htmlescape($thrLabel) . "</td>";
+            $html .= "<td>" . htmlescape($emails) . "</td>";
+            $html .= "<td class='text-end text-nowrap'>";
+            $html .= "<button type='button' class='btn btn-sm btn-outline-secondary me-1 creditalert-edit-entity'"
+                . " data-eid='{$eid}'"
+                . " data-name=\"" . htmlescape($name) . "\""
+                . " data-threshold=\"" . htmlescape($thrAttr) . "\""
+                . " data-emails=\"" . htmlescape($emails) . "\">"
+                . "<i class='ti ti-edit'></i></button>";
+            $html .= "<button type='button' class='btn btn-sm btn-outline-danger creditalert-del-entity'"
+                . " data-eid='{$eid}' data-name=\"" . htmlescape($name) . "\">"
+                . "<i class='ti ti-trash'></i></button>";
+            $html .= "</td>";
+            $html .= "</tr>";
+        }
+
+        $html .= "</tbody></table></div>";
+        return $html;
     }
 
     public static function sanitizeEmails(string $raw): string

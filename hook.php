@@ -34,8 +34,7 @@ function plugin_creditalert_timeline_actions(array $params): void
     }
 
     $canReassign = Session::haveRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_REASSIGN);
-    $canTransfer = Session::haveRight(PluginCreditalertProfile::RIGHTNAME_TRANSFER, PluginCreditalertProfile::RIGHT_TRANSFER);
-    if (!$canReassign && !$canTransfer) {
+    if (!$canReassign) {
         return;
     }
 
@@ -91,30 +90,6 @@ function plugin_creditalert_timeline_actions(array $params): void
         echo "</li>";
     }
 
-    if ($canTransfer) {
-        $transferModalId = 'creditalert_transfer_ticket_' . $ticketId;
-        $transferUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/ticket.transfer.php?tickets_id=' . $ticketId;
-        $transferModal = Ajax::createIframeModalWindow($transferModalId, $transferUrl, [
-            'width'         => 900,
-            'height'        => 520,
-            'dialog_class'  => 'modal-lg',
-            'title'         => __('Transferer ticket', 'creditalert'),
-            'reloadonclose' => true,
-            'display'       => false,
-        ]);
-
-        $transferButtonId = 'creditalert_transfer_btn_' . $ticketId;
-        $transferLabel = Html::entities_deep(__('Transferer ticket', 'creditalert'));
-        echo $transferModal;
-        echo "<li class='creditalert-timeline-action'>";
-        echo "<span id='{$transferButtonId}' class='me-1' data-bs-toggle='tooltip' data-bs-placement='top' title='{$transferLabel}'>";
-        echo "<button type='button' class='btn btn-icon btn-ghost-secondary' data-bs-toggle='modal' data-bs-target='#{$transferModalId}'>";
-        echo "<i class='ti ti-user-share'></i>";
-        echo "</button>";
-        echo "</span>";
-        echo "</li>";
-    }
-
     if ($canReassign) {
         $js = <<<JS
         $(function() {
@@ -136,33 +111,6 @@ function plugin_creditalert_timeline_actions(array $params): void
             if (dialog) {
                 dialog.style.maxWidth = '70vw';
                 dialog.style.width = '70vw';
-            }
-        });
-    JS;
-        echo Html::scriptBlock($js);
-    }
-
-    if ($canTransfer) {
-        $js = <<<JS
-        $(function() {
-            var btn = document.getElementById('{$transferButtonId}');
-            if (!btn) {
-                return;
-            }
-            var target = document.querySelector('.filter-timeline');
-            if (!target) {
-                return;
-            }
-            target.insertBefore(btn, target.firstChild);
-            var li = btn.closest('li');
-            if (li) {
-                li.remove();
-            }
-
-            var dialog = document.querySelector('#{$transferModalId} .modal-dialog');
-            if (dialog) {
-                dialog.style.maxWidth = '55vw';
-                dialog.style.width = '55vw';
             }
         });
     JS;

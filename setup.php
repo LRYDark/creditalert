@@ -1,6 +1,6 @@
 <?php
 
-define('PLUGIN_CREDITALERT_VERSION', '1.0.6');
+define('PLUGIN_CREDITALERT_VERSION', '1.1.0');
 define('PLUGIN_CREDITALERT_MIN_GLPI', '11.0.0');
 define('PLUGIN_CREDITALERT_MAX_GLPI', '11.0.99');
 
@@ -32,11 +32,6 @@ function plugin_init_creditalert()
             ['addtabon' => 'Config'],
         );
 
-        Plugin::registerClass(
-            PluginCreditalertPreference::class,
-            ['addtabon' => Preference::class],
-        );
-
         $PLUGIN_HOOKS['config_page']['creditalert'] = '../../front/config.form.php?forcetab=' . urlencode('PluginCreditalertConfig$1');
         $PLUGIN_HOOKS['menu_toadd']['creditalert'] = ['tools' => PluginCreditalertMenu::class];
         $PLUGIN_HOOKS['menu_entries']['creditalert'] = true;
@@ -54,7 +49,7 @@ function plugin_init_creditalert()
 function plugin_version_creditalert()
 {
     return [
-        'name'         => __('Credit Alert / Transfert', 'creditalert'),
+        'name'         => __('Credit Alert', 'creditalert'),
         'version'      => PLUGIN_CREDITALERT_VERSION,
         'author'       => 'REINERT Joris',
         'license'      => 'GPLv3',

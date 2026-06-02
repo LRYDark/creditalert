@@ -71,6 +71,12 @@ SQL;
             if (!$DB->fieldExists($configTable, 'export_filename_include_entity')) {
                 $migration->addField($configTable, 'export_filename_include_entity', 'bool', ['value' => 0]);
             }
+            // Cleanup: ticket transfer config moved to the dedicated 'tickettransfer' plugin.
+            foreach (['change_status_on_transfer', 'transfer_status', 'allow_pref_status', 'allow_modal_status'] as $obsoleteField) {
+                if ($DB->fieldExists($configTable, $obsoleteField)) {
+                    $migration->dropField($configTable, $obsoleteField);
+                }
+            }
         }
 
         $entityConfigTable = 'glpi_plugin_creditalert_entityconfigs';
@@ -88,27 +94,11 @@ SQL;
             $DB->doQuery($query);
         }
 
-        $prefTable = 'glpi_plugin_creditalert_preferences';
-        if (!$DB->tableExists($prefTable)) {
-            $query = <<<SQL
-                CREATE TABLE `$prefTable` (
-                    `id` int $keySign NOT NULL auto_increment,
-                    `users_id` int $keySign NOT NULL DEFAULT '0',
-                    `assign_on_transfer` tinyint NOT NULL DEFAULT '1',
-                    `replace_on_transfer` tinyint NOT NULL DEFAULT '1',
-                    PRIMARY KEY (`id`),
-                    UNIQUE KEY `users_id` (`users_id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC;
-SQL;
-            $DB->doQuery($query);
-        } else {
-            if (!$DB->fieldExists($prefTable, 'assign_on_transfer')) {
-                $migration->addField($prefTable, 'assign_on_transfer', 'bool', ['value' => 1]);
-            }
-            if (!$DB->fieldExists($prefTable, 'replace_on_transfer')) {
-                $migration->addField($prefTable, 'replace_on_transfer', 'bool', ['value' => 1]);
-            }
-            $migration->addKey($prefTable, 'users_id', 'users_id', 'UNIQUE');
+        // Cleanup: the ticket transfer preferences are now handled by the dedicated
+        // 'tickettransfer' plugin. Drop the obsolete table and right if present.
+        $migration->dropTable('glpi_plugin_creditalert_preferences');
+        if ($DB->tableExists('glpi_profilerights')) {
+            $DB->delete('glpi_profilerights', ['name' => 'plugin_creditalert_transfer']);
         }
 
         $notificationTable = 'glpi_plugin_creditalert_notifications';
