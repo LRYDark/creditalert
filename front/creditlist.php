@@ -1126,6 +1126,75 @@ JS;
                 PluginCreditalertConsumption::OPT_TICKET_DATE,
             ];
 
+            // Export-all toolbar (real button, not JS-injected)
+            $exportAllParams = $_GET;
+            unset(
+                $exportAllParams['creditalert_export'],
+                $exportAllParams['creditalert_export_all'],
+                $exportAllParams['include_private_tasks']
+            );
+            $exportAllParams['creditalert_export_all'] = 1;
+            $exportAllUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php';
+            if (!empty($exportAllParams)) {
+                $exportAllUrl .= '?' . http_build_query($exportAllParams);
+            }
+            echo "<div class='d-flex justify-content-end align-items-center mb-2'>";
+            echo "<button type='button' id='creditalert-export-all-btn' class='btn btn-sm btn-secondary'>";
+            echo "<i class='ti ti-download'></i> " . __('Exporter toutes les pages', 'creditalert') . "</button>";
+            echo "</div>";
+
+            // Export-all dialog via the native GLPI modal helper
+            $dlgRand = mt_rand();
+            $dlgSelectHtml = Dropdown::showYesNo('include_private_tasks', 0, -1, [
+                'rand'    => $dlgRand,
+                'display' => false,
+            ]);
+            $dlgSelectId        = Html::cleanId('dropdown_include_private_tasks' . $dlgRand);
+            $exportAllUrlJson   = json_encode($exportAllUrl, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $dlgTitleJson       = json_encode(__('Exporter toutes les pages', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $dlgLabelJson       = json_encode(__('Inclure les taches privees', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $dlgSelectHtmlJson  = json_encode($dlgSelectHtml, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $dlgSelectIdJson    = json_encode($dlgSelectId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $dlgCancelJson      = json_encode(__('Annuler', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $dlgExportJson      = json_encode(__('Exporter', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $js = <<<JS
+(function() {
+  var btn = document.getElementById('creditalert-export-all-btn');
+  if (!btn) {
+    return;
+  }
+  var exportUrl = {$exportAllUrlJson};
+  btn.addEventListener('click', function() {
+    glpi_html_dialog({
+      title: {$dlgTitleJson},
+      body: "<div class='d-flex align-items-center justify-content-center gap-2'>"
+          + "<label class='form-label mb-0' for='" + {$dlgSelectIdJson} + "'>" + {$dlgLabelJson} + "</label>"
+          + {$dlgSelectHtmlJson}
+          + "</div>",
+      buttons: [
+        {
+          label: {$dlgCancelJson},
+          class: 'btn-secondary'
+        },
+        {
+          label: "<i class='ti ti-download'></i> " + {$dlgExportJson},
+          class: 'btn-primary',
+          click: function() {
+            var sel = document.getElementById({$dlgSelectIdJson});
+            var url = new URL(exportUrl, window.location.origin);
+            if (sel && sel.value === '1') {
+              url.searchParams.set('include_private_tasks', '1');
+            }
+            window.location.href = url.toString();
+          }
+        }
+      ]
+    });
+  });
+})();
+JS;
+            echo Html::scriptBlock($js);
+
             echo "<div class='search_page row'>";
             echo "<div class='col search-container' data-glpi-search-container>";
             Search::showList(PluginCreditalertConsumption::class, $searchParams, $forcedDisplay);
@@ -1171,44 +1240,6 @@ JS;
 JS;
                 echo Html::scriptBlock($js);
             }
-            $exportAllParams = $_GET;
-            unset($exportAllParams['creditalert_export'], $exportAllParams['creditalert_export_all']);
-            $exportAllParams['creditalert_export_all'] = 1;
-            $exportAllUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php';
-            if (!empty($exportAllParams)) {
-                $exportAllUrl .= '?' . http_build_query($exportAllParams);
-            }
-            $exportAllLabel = __('Exporter toutes les pages', 'creditalert');
-            $exportAllUrlJson = json_encode($exportAllUrl, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $exportAllLabelJson = json_encode($exportAllLabel, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $js = <<<JS
-(function() {
-  var exportUrl = {$exportAllUrlJson};
-  var exportLabel = {$exportAllLabelJson};
-  var insertButton = function() {
-    var container = document.querySelector('.search-container[data-glpi-search-container] .search-controls .secondary-controls');
-    if (!container) {
-      return;
-    }
-    if (container.querySelector('[data-creditalert-export-all]')) {
-      return;
-    }
-    var link = document.createElement('a');
-    link.href = exportUrl;
-    link.className = 'btn btn-sm btn-ghost-secondary me-1 me-xl-2';
-    link.setAttribute('data-creditalert-export-all', '1');
-    link.innerHTML = '<i class="ti ti-download"></i><span class="d-none d-xl-inline-block ms-1">' + exportLabel + '</span>';
-    container.prepend(link);
-  };
-  insertButton();
-  if (window.jQuery) {
-    $(document).on('search_refresh', 'table.search-results', function() {
-      insertButton();
-    });
-  }
-})();
-JS;
-            echo Html::scriptBlock($js);
             echo "</div>";
             echo "</div>";
             if ($showOther) {
@@ -1228,6 +1259,7 @@ JS;
                     echo "<div class='alert alert-warning'>" . __('Aucun element selectionne.', 'creditalert') . "</div>";
                 } else {
                     $_SESSION['plugin_creditalert']['export_consumptions'] = $exportIds;
+                    $_SESSION['plugin_creditalert']['export_include_private'] = !empty($_GET['include_private_tasks']) ? 1 : 0;
                     $triggerExport = true;
                 }
             }
@@ -1248,6 +1280,9 @@ JS;
     }
     if (url.searchParams.has('creditalert_export_all')) {
       url.searchParams.delete('creditalert_export_all');
+    }
+    if (url.searchParams.has('include_private_tasks')) {
+      url.searchParams.delete('include_private_tasks');
     }
     window.history.replaceState({}, document.title, url.toString());
   } catch (e) {}

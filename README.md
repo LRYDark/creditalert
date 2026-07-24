@@ -43,11 +43,15 @@ Pourquoi c'est important:
 - certaines installations customisent le schéma ou la logique du plugin `credit`
 - ce mapping évite de modifier le code de `creditalert` pour s'adapter
 
-### Exports CSV
+### Exports
 
 Options d'export (selon version):
 - `export_filename_base`
 - ajout de la date et/ou de l'entité dans le nom de fichier
+
+Export des consommations (v1.1.1) :
+- fichier **Excel (.xlsx)** via PhpSpreadsheet : `TACHE n :` en gras dans la colonne tâches (🔒 pour une tâche privée), ligne vide entre les tâches, en-têtes figés
+- tâches privées **exclues par défaut**, choix Oui/Non proposé dans la massive action « Exporter CSV » et dans le dialogue « Exporter toutes les pages »
 
 ### Overrides par entité
 

@@ -2,6 +2,12 @@
 
 include('../../../inc/includes.php');
 
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\RichText\RichText;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+
 Session::checkRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_READ);
 
 PluginCreditalertConfig::ensureViews();
@@ -12,6 +18,9 @@ if (!is_array($ids)) {
 }
 $ids = array_values(array_filter(array_map('intval', $ids)));
 unset($_SESSION['plugin_creditalert']['export_consumptions']);
+
+$includePrivateTasks = (int) ($_SESSION['plugin_creditalert']['export_include_private'] ?? 0) === 1;
+unset($_SESSION['plugin_creditalert']['export_include_private']);
 
 if (empty($ids)) {
     Html::displayErrorAndDie(__('Aucun element selectionne.', 'creditalert'));
@@ -74,10 +83,14 @@ if (!empty($ticketIds)) {
     if ($DB->fieldExists('glpi_tickettasks', 'is_deleted')) {
         $taskWhere['is_deleted'] = 0;
     }
+    if (!$includePrivateTasks) {
+        $taskWhere['is_private'] = 0;
+    }
     foreach ($DB->request([
         'SELECT' => [
             'tickets_id',
             'content',
+            'is_private',
         ],
         'FROM'  => 'glpi_tickettasks',
         'WHERE' => $taskWhere,
@@ -92,7 +105,10 @@ if (!empty($ticketIds)) {
         if ($text === '') {
             continue;
         }
-        $tasksByTicket[(int) $task['tickets_id']][] = $text;
+        $tasksByTicket[(int) $task['tickets_id']][] = [
+            'text'       => $text,
+            'is_private' => (int) ($task['is_private'] ?? 0) === 1,
+        ];
     }
 }
 
@@ -140,12 +156,8 @@ foreach ($rows as $index => $row) {
 }
 
 $entityIdForExport = (int) ($rows[0]['entities_id'] ?? 0);
-$filename = PluginCreditalertConfig::getExportFilename($entityIdForExport);
-header('Content-Type: text/csv; charset=utf-8');
-header('Content-Disposition: attachment; filename="' . $filename . '"');
-echo "\xEF\xBB\xBF";
+$filename = preg_replace('/\.csv$/', '', PluginCreditalertConfig::getExportFilename($entityIdForExport)) . '.xlsx';
 
-$out = fopen('php://output', 'w');
 $categoryHeaders = [__('Categorie', 'creditalert')];
 for ($i = 1; $i < $maxCategoryParts; $i++) {
     $categoryHeaders[] = sprintf(__('Sous categorie %d', 'creditalert'), $i);
@@ -169,28 +181,24 @@ $headers = array_merge($headers, $categoryHeaders, [
     __('Credit consomme', 'creditalert'),
     __('Credit associe au ticket', 'creditalert'),
 ]);
-fputcsv($out, $headers, ';');
-if (false) {
-fputcsv($out, [
-    __('N° Ticket', 'creditalert'),
-    __('Entite', 'creditalert'),
-    __('Type', 'creditalert'),
-    __('Statut du ticket', 'creditalert'),
-    __('Date d\'ouverture', 'creditalert'),
-    __('Temps de prise en compte', 'creditalert'),
-    __('Date de resolution', 'creditalert'),
-    __('Annee', 'creditalert'),
-    __('Temps Minutes', 'creditalert'),
-    __('Temps en attente', 'creditalert'),
-    __('Temps de resolution', 'creditalert'),
-    __('Categorie', 'creditalert'),
-    __('Titre', 'creditalert'),
-    __('Taches - Description', 'creditalert'),
-    __('Credit consomme', 'creditalert'),
-    __('Credit associe au ticket', 'creditalert'),
-], ';');
-}
 
+$spreadsheet = new Spreadsheet();
+$sheet = $spreadsheet->getActiveSheet();
+$sheet->setTitle(substr(__('Consommations', 'creditalert'), 0, 31));
+
+$columnCount = count($headers);
+$tasksColumnIndex = 11 + $maxCategoryParts + 2; // after fixed columns + categories + title
+$lastColumnLetter = Coordinate::stringFromColumnIndex($columnCount);
+$tasksColumnLetter = Coordinate::stringFromColumnIndex($tasksColumnIndex);
+
+foreach ($headers as $col => $header) {
+    $sheet->setCellValue(Coordinate::stringFromColumnIndex($col + 1) . '1', $header);
+}
+$sheet->getStyle('A1:' . $lastColumnLetter . '1')->getFont()->setBold(true);
+$sheet->getStyle('A1:' . $lastColumnLetter . '1')->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+$sheet->freezePane('A2');
+
+$rowNumber = 2;
 foreach ($rows as $index => $row) {
     $ticketId = (int) ($row['ticket_id'] ?? 0);
     $entityName = $getEntityShortName((int) ($row['entities_id'] ?? 0));
@@ -246,9 +254,6 @@ foreach ($rows as $index => $row) {
         }
     }
 
-    $tasks = $tasksByTicket[$ticketId] ?? [];
-    $tasksText = implode(' | ', $tasks);
-
     $rowValues = [
         $ticketId,
         $entityName,
@@ -264,12 +269,59 @@ foreach ($rows as $index => $row) {
     ];
     $rowValues = array_merge($rowValues, $categoryCells, [
         $normalize($row['ticket_title'] ?? ''),
-        $tasksText,
-        $row['consumed'] ?? '',
+        null, // tasks cell handled below as rich text
+        ($row['consumed'] ?? '') === '' ? '' : (float) $row['consumed'],
         $normalize($row['credit_label'] ?? ''),
     ]);
-    fputcsv($out, $rowValues, ';');
+
+    foreach ($rowValues as $col => $value) {
+        if ($col + 1 === $tasksColumnIndex) {
+            continue;
+        }
+        $sheet->setCellValue(Coordinate::stringFromColumnIndex($col + 1) . $rowNumber, $value);
+    }
+
+    // Tasks cell: "TACHE n :" in bold, task text, blank line between tasks
+    $tasks = $tasksByTicket[$ticketId] ?? [];
+    if (!empty($tasks)) {
+        $richText = new RichText();
+        foreach ($tasks as $i => $task) {
+            if ($i > 0) {
+                $richText->createText("\n\n");
+            }
+            $labelText = sprintf(__('TACHE %d', 'creditalert'), $i + 1)
+                . ($task['is_private'] ? ' 🔒' : '')
+                . ' : ';
+            $label = $richText->createTextRun($labelText);
+            $label->getFont()->setBold(true);
+            $richText->createText($task['text']);
+        }
+        $sheet->setCellValue($tasksColumnLetter . $rowNumber, $richText);
+    }
+
+    $rowNumber++;
 }
 
-fclose($out);
+if ($rowNumber > 2) {
+    $dataRange = 'A2:' . $lastColumnLetter . ($rowNumber - 1);
+    $sheet->getStyle($dataRange)->getAlignment()->setVertical(Alignment::VERTICAL_TOP);
+    $sheet->getStyle($tasksColumnLetter . '2:' . $tasksColumnLetter . ($rowNumber - 1))
+        ->getAlignment()->setWrapText(true);
+}
+
+for ($col = 1; $col <= $columnCount; $col++) {
+    $letter = Coordinate::stringFromColumnIndex($col);
+    if ($col === $tasksColumnIndex) {
+        $sheet->getColumnDimension($letter)->setWidth(80);
+    } else {
+        $sheet->getColumnDimension($letter)->setAutoSize(true);
+    }
+}
+
+header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+header('Content-Disposition: attachment; filename="' . $filename . '"');
+header('Cache-Control: max-age=0');
+
+$writer = new Xlsx($spreadsheet);
+$writer->save('php://output');
 exit;

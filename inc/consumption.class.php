@@ -342,6 +342,10 @@ JS;
     public static function showMassiveActionsSubForm(MassiveAction $ma)
     {
         if ($ma->getAction() === 'exportcsv') {
+            echo "<div class='d-flex align-items-center justify-content-center gap-2 mb-3'>";
+            echo "<label class='form-label mb-0'>" . __('Inclure les taches privees', 'creditalert') . "</label>";
+            Dropdown::showYesNo('include_private_tasks', 0);
+            echo "</div>";
             echo Html::submit(__('Exporter CSV', 'creditalert'), [
                 'name'  => 'massiveaction',
                 'class' => 'btn btn-primary',
@@ -595,7 +599,9 @@ JS;
                 return;
             }
 
+            $input = $ma->getInput();
             $_SESSION['plugin_creditalert']['export_consumptions'] = $exportIds;
+            $_SESSION['plugin_creditalert']['export_include_private'] = !empty($input['include_private_tasks']) ? 1 : 0;
 
             foreach ($exportIds as $id) {
                 $ma->itemDone($item::class, $id, MassiveAction::ACTION_OK);
@@ -603,7 +609,6 @@ JS;
 
             /** @var array $CFG_GLPI */
             global $CFG_GLPI;
-            $input = $ma->getInput();
             $redirect = '';
             if (!empty($input['redirect'])) {
                 $redirect = URL::sanitizeURL((string) $input['redirect']);
