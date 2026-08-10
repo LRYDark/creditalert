@@ -612,7 +612,15 @@ if (!document.getElementById('ca-alert-style')) {
 
     echo "<form method='get' action='" . $CFG_GLPI['root_doc'] . "/plugins/creditalert/front/creditlist.php' class='mb-3'>";
     echo Html::hidden('view', ['value' => 'consumptions']);
-    echo "<div class='card mb-3'><div class='card-body'>";
+    echo "<div class='card mb-3'>";
+    echo "<div class='card-header d-flex justify-content-between align-items-center' id='creditalert-filter-toggle'"
+        . " style='cursor:pointer;' data-bs-toggle='collapse' data-bs-target='#creditalert-filter-body'"
+        . " aria-expanded='true' aria-controls='creditalert-filter-body'>";
+    echo "<span class='fw-semibold'><i class='ti ti-filter'></i> " . __('Filtres', 'creditalert') . "</span>";
+    echo "<i class='ti ti-chevron-up' id='creditalert-filter-chevron'></i>";
+    echo "</div>";
+    echo "<div class='collapse show' id='creditalert-filter-body'>";
+    echo "<div class='card-body'>";
     echo "<div class='row g-3 align-items-end'>";
 
     echo "<div class='col-md-4'>";
@@ -800,8 +808,41 @@ JS;
     echo "<div class='mt-3 text-end'>";
     echo Html::submit(__('Rechercher', 'creditalert'), ['name' => 'search', 'class' => 'btn btn-primary']);
     echo "</div>";
-    echo "</div></div>";
+    echo "</div></div></div>";
     Html::closeForm();
+
+    // Collapse arrow: rotate chevron + remember state across reloads
+    $js = <<<JS
+(function() {
+  var body = document.getElementById('creditalert-filter-body');
+  var toggle = document.getElementById('creditalert-filter-toggle');
+  var chevron = document.getElementById('creditalert-filter-chevron');
+  if (!body || !toggle || !chevron) {
+    return;
+  }
+  var key = 'creditalert_filter_collapsed';
+  var setChevron = function(collapsed) {
+    chevron.classList.toggle('ti-chevron-up', !collapsed);
+    chevron.classList.toggle('ti-chevron-down', collapsed);
+    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  };
+  try {
+    if (localStorage.getItem(key) === '1') {
+      body.classList.remove('show');
+      setChevron(true);
+    }
+  } catch (e) {}
+  body.addEventListener('shown.bs.collapse', function() {
+    setChevron(false);
+    try { localStorage.setItem(key, '0'); } catch (e) {}
+  });
+  body.addEventListener('hidden.bs.collapse', function() {
+    setChevron(true);
+    try { localStorage.setItem(key, '1'); } catch (e) {}
+  });
+})();
+JS;
+    echo Html::scriptBlock($js);
 
     if (isset($_GET['search'])) {
         // Validation depends on filter mode
@@ -1099,7 +1140,7 @@ JS;
             }
             if (Session::haveRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_READ)) {
                 $specificActions[PluginCreditalertConsumption::class . MassiveAction::CLASS_ACTION_SEPARATOR . 'exportcsv']
-                    = __('Exporter CSV', 'creditalert');
+                    = __('Exporter CSV / XLSX', 'creditalert');
             }
 
             $searchParams['showmassiveactions'] = !empty($specificActions);
@@ -1131,7 +1172,8 @@ JS;
             unset(
                 $exportAllParams['creditalert_export'],
                 $exportAllParams['creditalert_export_all'],
-                $exportAllParams['include_private_tasks']
+                $exportAllParams['include_private_tasks'],
+                $exportAllParams['export_format']
             );
             $exportAllParams['creditalert_export_all'] = 1;
             $exportAllUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php';
@@ -1150,11 +1192,23 @@ JS;
                 'display' => false,
             ]);
             $dlgSelectId        = Html::cleanId('dropdown_include_private_tasks' . $dlgRand);
+            $dlgFormatHtml = Dropdown::showFromArray('creditalert_export_format', [
+                'xlsx' => __('Excel (XLSX)', 'creditalert'),
+                'csv'  => __('CSV', 'creditalert'),
+            ], [
+                'value'   => 'xlsx',
+                'rand'    => $dlgRand,
+                'display' => false,
+            ]);
+            $dlgFormatId        = Html::cleanId('dropdown_creditalert_export_format' . $dlgRand);
             $exportAllUrlJson   = json_encode($exportAllUrl, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
             $dlgTitleJson       = json_encode(__('Exporter toutes les pages', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
             $dlgLabelJson       = json_encode(__('Inclure les taches privees', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $dlgFormatLabelJson = json_encode(__('Format d\'export', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
             $dlgSelectHtmlJson  = json_encode($dlgSelectHtml, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $dlgFormatHtmlJson  = json_encode($dlgFormatHtml, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
             $dlgSelectIdJson    = json_encode($dlgSelectId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+            $dlgFormatIdJson    = json_encode($dlgFormatId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
             $dlgCancelJson      = json_encode(__('Annuler', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
             $dlgExportJson      = json_encode(__('Exporter', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
             $js = <<<JS
@@ -1167,9 +1221,13 @@ JS;
   btn.addEventListener('click', function() {
     glpi_html_dialog({
       title: {$dlgTitleJson},
-      body: "<div class='d-flex align-items-center justify-content-center gap-2'>"
+      body: "<div class='d-flex align-items-center justify-content-center gap-2 mb-3'>"
           + "<label class='form-label mb-0' for='" + {$dlgSelectIdJson} + "'>" + {$dlgLabelJson} + "</label>"
           + {$dlgSelectHtmlJson}
+          + "</div>"
+          + "<div class='d-flex align-items-center justify-content-center gap-2'>"
+          + "<label class='form-label mb-0' for='" + {$dlgFormatIdJson} + "'>" + {$dlgFormatLabelJson} + "</label>"
+          + {$dlgFormatHtmlJson}
           + "</div>",
       buttons: [
         {
@@ -1181,9 +1239,13 @@ JS;
           class: 'btn-primary',
           click: function() {
             var sel = document.getElementById({$dlgSelectIdJson});
+            var fmt = document.getElementById({$dlgFormatIdJson});
             var url = new URL(exportUrl, window.location.origin);
             if (sel && sel.value === '1') {
               url.searchParams.set('include_private_tasks', '1');
+            }
+            if (fmt && fmt.value === 'csv') {
+              url.searchParams.set('export_format', 'csv');
             }
             window.location.href = url.toString();
           }
@@ -1260,6 +1322,7 @@ JS;
                 } else {
                     $_SESSION['plugin_creditalert']['export_consumptions'] = $exportIds;
                     $_SESSION['plugin_creditalert']['export_include_private'] = !empty($_GET['include_private_tasks']) ? 1 : 0;
+                    $_SESSION['plugin_creditalert']['export_format'] = (($_GET['export_format'] ?? '') === 'csv') ? 'csv' : 'xlsx';
                     $triggerExport = true;
                 }
             }
@@ -1283,6 +1346,9 @@ JS;
     }
     if (url.searchParams.has('include_private_tasks')) {
       url.searchParams.delete('include_private_tasks');
+    }
+    if (url.searchParams.has('export_format')) {
+      url.searchParams.delete('export_format');
     }
     window.history.replaceState({}, document.title, url.toString());
   } catch (e) {}

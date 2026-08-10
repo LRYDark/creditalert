@@ -22,6 +22,12 @@ unset($_SESSION['plugin_creditalert']['export_consumptions']);
 $includePrivateTasks = (int) ($_SESSION['plugin_creditalert']['export_include_private'] ?? 0) === 1;
 unset($_SESSION['plugin_creditalert']['export_include_private']);
 
+$exportFormat = strtolower((string) ($_SESSION['plugin_creditalert']['export_format'] ?? 'xlsx'));
+unset($_SESSION['plugin_creditalert']['export_format']);
+if (!in_array($exportFormat, ['xlsx', 'csv'], true)) {
+    $exportFormat = 'xlsx';
+}
+
 if (empty($ids)) {
     Html::displayErrorAndDie(__('Aucun element selectionne.', 'creditalert'));
 }
@@ -156,7 +162,7 @@ foreach ($rows as $index => $row) {
 }
 
 $entityIdForExport = (int) ($rows[0]['entities_id'] ?? 0);
-$filename = preg_replace('/\.csv$/', '', PluginCreditalertConfig::getExportFilename($entityIdForExport)) . '.xlsx';
+$filename = preg_replace('/\.csv$/', '', PluginCreditalertConfig::getExportFilename($entityIdForExport)) . '.' . $exportFormat;
 
 $categoryHeaders = [__('Categorie', 'creditalert')];
 for ($i = 1; $i < $maxCategoryParts; $i++) {
@@ -182,23 +188,10 @@ $headers = array_merge($headers, $categoryHeaders, [
     __('Credit associe au ticket', 'creditalert'),
 ]);
 
-$spreadsheet = new Spreadsheet();
-$sheet = $spreadsheet->getActiveSheet();
-$sheet->setTitle(substr(__('Consommations', 'creditalert'), 0, 31));
-
 $columnCount = count($headers);
 $tasksColumnIndex = 11 + $maxCategoryParts + 2; // after fixed columns + categories + title
-$lastColumnLetter = Coordinate::stringFromColumnIndex($columnCount);
-$tasksColumnLetter = Coordinate::stringFromColumnIndex($tasksColumnIndex);
 
-foreach ($headers as $col => $header) {
-    $sheet->setCellValue(Coordinate::stringFromColumnIndex($col + 1) . '1', $header);
-}
-$sheet->getStyle('A1:' . $lastColumnLetter . '1')->getFont()->setBold(true);
-$sheet->getStyle('A1:' . $lastColumnLetter . '1')->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
-$sheet->freezePane('A2');
-
-$rowNumber = 2;
+$exportRows = [];
 foreach ($rows as $index => $row) {
     $ticketId = (int) ($row['ticket_id'] ?? 0);
     $entityName = $getEntityShortName((int) ($row['entities_id'] ?? 0));
@@ -269,12 +262,61 @@ foreach ($rows as $index => $row) {
     ];
     $rowValues = array_merge($rowValues, $categoryCells, [
         $normalize($row['ticket_title'] ?? ''),
-        null, // tasks cell handled below as rich text
+        null, // tasks cell handled at output time (rich text or plain text)
         ($row['consumed'] ?? '') === '' ? '' : (float) $row['consumed'],
         $normalize($row['credit_label'] ?? ''),
     ]);
 
-    foreach ($rowValues as $col => $value) {
+    $exportRows[] = [
+        'values' => $rowValues,
+        'tasks'  => $tasksByTicket[$ticketId] ?? [],
+    ];
+}
+
+$taskLabel = static function (array $task, int $i): string {
+    return sprintf(__('TACHE %d', 'creditalert'), $i + 1)
+        . ($task['is_private'] ? ' 🔒' : '')
+        . ' : ';
+};
+
+if ($exportFormat === 'csv') {
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: max-age=0');
+
+    $out = fopen('php://output', 'w');
+    fwrite($out, "\xEF\xBB\xBF");
+    fputcsv($out, $headers, ';');
+    foreach ($exportRows as $exportRow) {
+        $values = $exportRow['values'];
+        $taskParts = [];
+        foreach ($exportRow['tasks'] as $i => $task) {
+            $taskParts[] = $taskLabel($task, $i) . $task['text'];
+        }
+        $values[$tasksColumnIndex - 1] = implode("\n\n", $taskParts);
+        fputcsv($out, $values, ';');
+    }
+    fclose($out);
+    exit;
+}
+
+$spreadsheet = new Spreadsheet();
+$sheet = $spreadsheet->getActiveSheet();
+$sheet->setTitle(substr(__('Consommations', 'creditalert'), 0, 31));
+
+$lastColumnLetter = Coordinate::stringFromColumnIndex($columnCount);
+$tasksColumnLetter = Coordinate::stringFromColumnIndex($tasksColumnIndex);
+
+foreach ($headers as $col => $header) {
+    $sheet->setCellValue(Coordinate::stringFromColumnIndex($col + 1) . '1', $header);
+}
+$sheet->getStyle('A1:' . $lastColumnLetter . '1')->getFont()->setBold(true);
+$sheet->getStyle('A1:' . $lastColumnLetter . '1')->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+$sheet->freezePane('A2');
+
+$rowNumber = 2;
+foreach ($exportRows as $exportRow) {
+    foreach ($exportRow['values'] as $col => $value) {
         if ($col + 1 === $tasksColumnIndex) {
             continue;
         }
@@ -282,17 +324,13 @@ foreach ($rows as $index => $row) {
     }
 
     // Tasks cell: "TACHE n :" in bold, task text, blank line between tasks
-    $tasks = $tasksByTicket[$ticketId] ?? [];
-    if (!empty($tasks)) {
+    if (!empty($exportRow['tasks'])) {
         $richText = new RichText();
-        foreach ($tasks as $i => $task) {
+        foreach ($exportRow['tasks'] as $i => $task) {
             if ($i > 0) {
                 $richText->createText("\n\n");
             }
-            $labelText = sprintf(__('TACHE %d', 'creditalert'), $i + 1)
-                . ($task['is_private'] ? ' 🔒' : '')
-                . ' : ';
-            $label = $richText->createTextRun($labelText);
+            $label = $richText->createTextRun($taskLabel($task, $i));
             $label->getFont()->setBold(true);
             $richText->createText($task['text']);
         }

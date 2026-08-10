@@ -320,7 +320,7 @@ JS;
 
         $action_prefix = static::class . MassiveAction::CLASS_ACTION_SEPARATOR;
         $actions[$action_prefix . 'reassigncredit'] = __('Reaffecter credit', 'creditalert');
-        $actions[$action_prefix . 'exportcsv'] = __('Exporter CSV', 'creditalert');
+        $actions[$action_prefix . 'exportcsv'] = __('Exporter CSV / XLSX', 'creditalert');
     }
 
     public function getSpecificMassiveActions($checkitem = null)
@@ -333,7 +333,7 @@ JS;
         }
         if (Session::haveRight(self::$rightname, PluginCreditalertProfile::RIGHT_READ)) {
             $actions[static::class . MassiveAction::CLASS_ACTION_SEPARATOR . 'exportcsv']
-                = __('Exporter CSV', 'creditalert');
+                = __('Exporter CSV / XLSX', 'creditalert');
         }
 
         return $actions;
@@ -346,7 +346,16 @@ JS;
             echo "<label class='form-label mb-0'>" . __('Inclure les taches privees', 'creditalert') . "</label>";
             Dropdown::showYesNo('include_private_tasks', 0);
             echo "</div>";
-            echo Html::submit(__('Exporter CSV', 'creditalert'), [
+            echo "<div class='d-flex align-items-center justify-content-center gap-2 mb-3'>";
+            echo "<label class='form-label mb-0'>" . __('Format d\'export', 'creditalert') . "</label>";
+            Dropdown::showFromArray('export_format', [
+                'xlsx' => __('Excel (XLSX)', 'creditalert'),
+                'csv'  => __('CSV', 'creditalert'),
+            ], [
+                'value' => 'xlsx',
+            ]);
+            echo "</div>";
+            echo Html::submit(__('Exporter CSV / XLSX', 'creditalert'), [
                 'name'  => 'massiveaction',
                 'class' => 'btn btn-primary',
             ]);
@@ -602,6 +611,7 @@ JS;
             $input = $ma->getInput();
             $_SESSION['plugin_creditalert']['export_consumptions'] = $exportIds;
             $_SESSION['plugin_creditalert']['export_include_private'] = !empty($input['include_private_tasks']) ? 1 : 0;
+            $_SESSION['plugin_creditalert']['export_format'] = (($input['export_format'] ?? '') === 'csv') ? 'csv' : 'xlsx';
 
             foreach ($exportIds as $id) {
                 $ma->itemDone($item::class, $id, MassiveAction::ACTION_OK);
