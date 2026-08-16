@@ -7,6 +7,9 @@ Le plugin sert à transformer des données de crédits en alertes exploitables p
 ## Ce que fait le plugin (lecture rapide)
 
 - Affiche des vues de consommation et de synthèse.
+- Permet de réaffecter les consommations d'un ticket vers un autre crédit
+  (fenêtre modale depuis la timeline, responsive depuis la v1.2.0 : large sur
+  ordinateur, panneau pleine largeur ancré en bas de l'écran sur téléphone).
 - Déclenche des alertes selon des seuils (globaux et par entité).
 - Permet des overrides par entité.
 - Exporte les données en CSV.
