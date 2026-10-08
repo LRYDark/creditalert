@@ -155,9 +155,16 @@ SQL;
                     'itemtype' => PluginCreditalertAlertTask::class,
                     'name'     => 'cronCreditalert',
                 ]);
+                // La tâche passe sous l'espace de noms du plugin (cf. GlpiPlugin\Creditalert\AlertTask :
+                // « PluginCreditalert… » était pris pour une tâche du plugin credit). Ses réglages
+                // (état, fréquence, mode, dernier passage) sont gardés.
+                $DB->update('glpi_crontasks', ['itemtype' => \GlpiPlugin\Creditalert\AlertTask::class], [
+                    'itemtype' => PluginCreditalertAlertTask::class,
+                    'name'     => 'creditalert',
+                ]);
             }
             CronTask::register(
-                PluginCreditalertAlertTask::class,
+                \GlpiPlugin\Creditalert\AlertTask::class,
                 'creditalert',
                 HOUR_TIMESTAMP,
                 [
@@ -205,7 +212,7 @@ SQL;
         if ($DB->tableExists('glpi_crontasks')) {
             $DB->delete(
                 'glpi_crontasks',
-                ['itemtype' => PluginCreditalertAlertTask::class]
+                ['itemtype' => [PluginCreditalertAlertTask::class, \GlpiPlugin\Creditalert\AlertTask::class]]
             );
         }
 

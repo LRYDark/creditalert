@@ -3,6 +3,7 @@
 include('../../../inc/includes.php');
 
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\RichText\RichText;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -58,6 +59,7 @@ foreach ($DB->request([
         'glpi_tickets.actiontime AS ticket_actiontime',
         'glpi_tickets.itilcategories_id AS itilcategories_id',
         'glpi_tickets.name AS ticket_title',
+        'glpi_tickets.content AS ticket_content',
     ],
     'FROM' => $view,
     'LEFT JOIN' => [
@@ -80,6 +82,13 @@ foreach ($DB->request([
         $ticketIds[(int) $row['ticket_id']] = true;
     }
 }
+
+// Rich text (task content, ticket description) -> single-line plain text
+$toPlainText = static function ($value): string {
+    $text = html_entity_decode((string) $value, ENT_QUOTES, 'UTF-8');
+    $text = str_replace("\xC2\xA0", ' ', $text);
+    return trim(preg_replace('/\s+/u', ' ', strip_tags($text)));
+};
 
 $tasksByTicket = [];
 if (!empty($ticketIds)) {
@@ -105,9 +114,7 @@ if (!empty($ticketIds)) {
             'id',
         ],
     ]) as $task) {
-        $text = html_entity_decode((string) ($task['content'] ?? ''), ENT_QUOTES, 'UTF-8');
-        $text = str_replace("\xC2\xA0", ' ', $text);
-        $text = trim(preg_replace('/\s+/u', ' ', strip_tags($text)));
+        $text = $toPlainText($task['content'] ?? '');
         if ($text === '') {
             continue;
         }
@@ -183,13 +190,16 @@ $headers = [
 ];
 $headers = array_merge($headers, $categoryHeaders, [
     __('Titre', 'creditalert'),
-    __('Taches - Description', 'creditalert'),
+    __('Description', 'creditalert'),
+    __('Taches', 'creditalert'),
     __('Credit consomme', 'creditalert'),
     __('Credit associe au ticket', 'creditalert'),
 ]);
 
 $columnCount = count($headers);
-$tasksColumnIndex = 11 + $maxCategoryParts + 2; // after fixed columns + categories + title
+// after fixed columns + categories + title
+$descriptionColumnIndex = 11 + $maxCategoryParts + 2;
+$tasksColumnIndex = 11 + $maxCategoryParts + 3;
 
 $exportRows = [];
 foreach ($rows as $index => $row) {
@@ -262,6 +272,7 @@ foreach ($rows as $index => $row) {
     ];
     $rowValues = array_merge($rowValues, $categoryCells, [
         $normalize($row['ticket_title'] ?? ''),
+        $toPlainText($row['ticket_content'] ?? ''),
         null, // tasks cell handled at output time (rich text or plain text)
         ($row['consumed'] ?? '') === '' ? '' : (float) $row['consumed'],
         $normalize($row['credit_label'] ?? ''),
@@ -306,6 +317,7 @@ $sheet->setTitle(substr(__('Consommations', 'creditalert'), 0, 31));
 
 $lastColumnLetter = Coordinate::stringFromColumnIndex($columnCount);
 $tasksColumnLetter = Coordinate::stringFromColumnIndex($tasksColumnIndex);
+$descriptionColumnLetter = Coordinate::stringFromColumnIndex($descriptionColumnIndex);
 
 foreach ($headers as $col => $header) {
     $sheet->setCellValue(Coordinate::stringFromColumnIndex($col + 1) . '1', $header);
@@ -320,7 +332,13 @@ foreach ($exportRows as $exportRow) {
         if ($col + 1 === $tasksColumnIndex) {
             continue;
         }
-        $sheet->setCellValue(Coordinate::stringFromColumnIndex($col + 1) . $rowNumber, $value);
+        $coordinate = Coordinate::stringFromColumnIndex($col + 1) . $rowNumber;
+        if ($col + 1 === $descriptionColumnIndex) {
+            // Forced as text: a description starting with "=" must not become a formula
+            $sheet->setCellValueExplicit($coordinate, (string) $value, DataType::TYPE_STRING);
+            continue;
+        }
+        $sheet->setCellValue($coordinate, $value);
     }
 
     // Tasks cell: "TACHE n :" in bold, task text, blank line between tasks
@@ -345,12 +363,16 @@ if ($rowNumber > 2) {
     $sheet->getStyle($dataRange)->getAlignment()->setVertical(Alignment::VERTICAL_TOP);
     $sheet->getStyle($tasksColumnLetter . '2:' . $tasksColumnLetter . ($rowNumber - 1))
         ->getAlignment()->setWrapText(true);
+    $sheet->getStyle($descriptionColumnLetter . '2:' . $descriptionColumnLetter . ($rowNumber - 1))
+        ->getAlignment()->setWrapText(true);
 }
 
 for ($col = 1; $col <= $columnCount; $col++) {
     $letter = Coordinate::stringFromColumnIndex($col);
     if ($col === $tasksColumnIndex) {
         $sheet->getColumnDimension($letter)->setWidth(80);
+    } elseif ($col === $descriptionColumnIndex) {
+        $sheet->getColumnDimension($letter)->setWidth(60);
     } else {
         $sheet->getColumnDimension($letter)->setAutoSize(true);
     }

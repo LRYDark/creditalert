@@ -197,23 +197,28 @@ class PluginCreditalertAlertTask extends CommonDBTM
             $bodyLines[] = sprintf(__('Date de fin : %s', 'creditalert'), $credit['end_date']);
         }
 
-        $mailer = new GLPIMailer();
-        $email = $mailer->getEmail();
-        $email->subject($subject);
-        $email->text(implode(PHP_EOL, $bodyLines));
-
-        foreach ($recipients as $recipient) {
-            $email->addTo((string) $recipient);
-        }
-
+        // File d'attente des notifications de GLPI, envoi immédiat comme avant. Une ligne par destinataire, rattachée à
+        // l'entité du crédit (toujours chargeable, même plugin Crédit désactivé).
+        // Comme avant, un crédit n'est noté « notifié » que si son alerte est partie : aucun envoi réussi → lignes
+        // retirées de la file et alerte rejouée au passage suivant de la tâche (jamais perdue, jamais en double).
+        // Envoi réussi pour une partie des destinataires seulement → crédit noté, les autres restent en file et GLPI
+        // les renvoie (rejouer l'alerte la renverrait aussi à ceux qui l'ont reçue).
         $sender = Config::getEmailSender();
-        if (!empty($sender['email'])) {
-            $email->from(new \Symfony\Component\Mime\Address(
-                $sender['email'],
-                (string) ($sender['name'] ?? '')
-            ));
-        }
+        $result = PluginCreditalertMailqueue::send([
+            'itemtype'    => Entity::class,
+            'items_id'    => (int) $credit['entities_id'],
+            'entities_id' => (int) $credit['entities_id'],
+            'event'       => 'plugin_creditalert_' . strtolower($status),
+            'subject'     => $subject,
+            'text'        => implode(PHP_EOL, $bodyLines),
+            'to'          => array_map(static fn($recipient): array => [(string) $recipient, ''], $recipients),
+            'from'        => !empty($sender['email']) ? [(string) $sender['email'], (string) ($sender['name'] ?? '')] : null,
+        ], true);
 
-        return $mailer->send();
+        if ($result['sent'] === 0) {
+            PluginCreditalertMailqueue::discard($result['pending']);
+            return false;
+        }
+        return true;
     }
 }

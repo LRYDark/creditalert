@@ -72,6 +72,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
             'glpi_tickets.actiontime AS ticket_actiontime',
             'glpi_tickets.itilcategories_id AS itilcategories_id',
             'glpi_tickets.name AS ticket_title',
+            'glpi_tickets.content AS ticket_content',
         ],
         'FROM' => $view,
         'LEFT JOIN' => [
@@ -99,6 +100,13 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
         Html::displayErrorAndDie(__('Aucun element selectionne.', 'creditalert'));
     }
 
+    // Rich text (task content, ticket description) -> single-line plain text
+    $toPlainText = static function ($value): string {
+        $text = html_entity_decode((string) $value, ENT_QUOTES, 'UTF-8');
+        $text = str_replace("\xC2\xA0", ' ', $text);
+        return trim(preg_replace('/\s+/u', ' ', strip_tags($text)));
+    };
+
     $tasksByTicket = [];
     if (!empty($ticketIds)) {
         $taskWhere = [
@@ -119,9 +127,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
                 'id',
             ],
         ]) as $task) {
-        $text = html_entity_decode((string) ($task['content'] ?? ''), ENT_QUOTES, 'UTF-8');
-        $text = str_replace("\xC2\xA0", ' ', $text);
-        $text = trim(preg_replace('/\s+/u', ' ', strip_tags($text)));
+            $text = $toPlainText($task['content'] ?? '');
             if ($text === '') {
                 continue;
             }
@@ -196,7 +202,8 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     ];
     $headers = array_merge($headers, $categoryHeaders, [
         __('Titre', 'creditalert'),
-        __('Taches - Description', 'creditalert'),
+        __('Description', 'creditalert'),
+        __('Taches', 'creditalert'),
         __('Credit consomme', 'creditalert'),
         __('Credit associe au ticket', 'creditalert'),
     ]);
@@ -275,6 +282,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
         ];
         $rowValues = array_merge($rowValues, $categoryCells, [
             $normalize($row['ticket_title'] ?? ''),
+            $toPlainText($row['ticket_content'] ?? ''),
             $tasksText,
             $row['consumed'] ?? '',
             $normalize($row['credit_label'] ?? ''),
