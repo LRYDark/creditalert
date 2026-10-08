@@ -1,6 +1,6 @@
 # Journal des changements
 
-## 1.2.3 — 2026-10-06
+## 1.2.0 — 2026-10-06
 
 - **La tâche automatique ne bloque plus celles des autres plugins.** Elle passe de la classe
   `PluginCreditalertAlertTask` à `GlpiPlugin\Creditalert\AlertTask`. GLPI reconnaît la tâche d'un plugin au début
