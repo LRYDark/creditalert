@@ -1,6 +1,9 @@
 # Journal des changements
 
-## 1.2.0 — 2026-10-06
+## 1.2.1 — 2026-10-09
+
+Une seule mise à jour pour les changements préparés sous 1.2.1, 1.2.2 et 1.2.3 (aucune de ces versions n'a été
+publiée) : depuis la 1.2.0, « Mettre à jour » applique tout d'un coup.
 
 - **La tâche automatique ne bloque plus celles des autres plugins.** Elle passe de la classe
   `PluginCreditalertAlertTask` à `GlpiPlugin\Creditalert\AlertTask`. GLPI reconnaît la tâche d'un plugin au début
