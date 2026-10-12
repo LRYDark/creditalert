@@ -1,12 +1,11 @@
 <?php
 
-include('../../../inc/includes.php');
 
 Session::checkRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_READ);
 
 $credit_id = (int) ($_GET['credit_id'] ?? 0);
 if ($credit_id <= 0) {
-    Html::displayErrorAndDie(__('Credit manquant', 'creditalert'));
+    throw new \Glpi\Exception\Http\BadRequestHttpException(__('Credit manquant', 'creditalert'));
 }
 
 $config = PluginCreditalertConfig::getConfig();
@@ -97,7 +96,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     }
 
     if (empty($rows)) {
-        Html::displayErrorAndDie(__('Aucun element selectionne.', 'creditalert'));
+        throw new \Glpi\Exception\Http\BadRequestHttpException(__('Aucun element selectionne.', 'creditalert'));
     }
 
     // Rich text (task content, ticket description) -> single-line plain text
@@ -321,7 +320,7 @@ echo "</tr></thead><tbody>";
 foreach ($tickets as $t) {
     $url = Ticket::getFormURLWithID((int) $t['id']);
     echo "<tr>";
-    echo "<td><a href='{$url}'>" . Html::entities_deep($t['name']) . "</a></td>";
+    echo "<td><a href='{$url}'>" . htmlescape($t['name']) . "</a></td>";
     echo "<td>" . Ticket::getStatus($t['status']) . "</td>";
     echo "<td>" . Html::convDateTime($t['date']) . "</td>";
     echo "<td>" . Html::convDateTime($t['consume_date']) . "</td>";

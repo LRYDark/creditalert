@@ -1,6 +1,25 @@
 # Journal des changements
 
-## 1.2.0 — 2026-10-06
+## 1.3.0 — 2026-10-12
+
+Première version pour GLPI 12 (12.0.x). La série 1.2.x reste celle de GLPI 11.
+
+- **Compatible GLPI 12 uniquement.** GLPI 12 déclare le type des propriétés de ses classes (`$rightname`,
+  `$dohistory`…) ; une classe du plugin qui les redéfinit doit porter le même type, ce que GLPI 11 refuse. Les deux
+  séries ne sont donc pas interchangeables.
+- API retirées par GLPI 12 remplacées : `QueryExpression` global, `Html::entities_deep()` / `cleanInputText()`,
+  `Html::displayErrorAndDie()` / `displayRightError()`, `Glpi\Toolbox\Sanitizer`.
+- Fonctionne avec Credit 1.16.0 (version GLPI 12 du plugin Credit) : ses tables n'ont pas changé.
+- **Plus de jeton CSRF.** GLPI 12 contrôle l'origine de la requête (en-têtes `Sec-Fetch-Site` / `Origin`) : les
+  champs `_glpi_csrf_token`, les en-têtes `X-Glpi-Csrf-Token` et les appels à `Session::checkCSRF()` /
+  `getNewCSRFToken()` sont retirés.
+- Inclusion de `inc/includes.php` retirée (obsolète).
+- Aucune migration de base.
+
+## 1.2.1 — 2026-10-09
+
+Une seule mise à jour pour les changements préparés sous 1.2.1, 1.2.2 et 1.2.3 (aucune de ces versions n'a été
+publiée) : depuis la 1.2.0, « Mettre à jour » applique tout d'un coup.
 
 - **La tâche automatique ne bloque plus celles des autres plugins.** Elle passe de la classe
   `PluginCreditalertAlertTask` à `GlpiPlugin\Creditalert\AlertTask`. GLPI reconnaît la tâche d'un plugin au début

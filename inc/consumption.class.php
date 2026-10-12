@@ -5,7 +5,7 @@ use Glpi\Toolbox\URL;
 
 class PluginCreditalertConsumption extends CommonDBTM
 {
-    public static $rightname = PluginCreditalertProfile::RIGHTNAME;
+    public static string $rightname = PluginCreditalertProfile::RIGHTNAME;
     public $table = 'glpi_plugin_creditalert_vconsumptions';
     public $no_auto_fields = true;
     private const SEARCH_BASE = 3000;
@@ -196,9 +196,9 @@ class PluginCreditalertConsumption extends CommonDBTM
                 $label = $values['name'] ?? $values['ticket_name'] ?? $values ?? '';
                 if (!empty($ticketId)) {
                     $url = Ticket::getFormURLWithID((int) $ticketId);
-                    return "<a href='{$url}'>" . Html::entities_deep($label) . "</a>";
+                    return "<a href='{$url}'>" . htmlescape($label) . "</a>";
                 }
-                return Html::entities_deep($label);
+                return htmlescape($label);
             case 'ticket_id':
                 $ticketId = (int) ($values['additionalfields']['ticket_id'] ?? $values['ticket_id'] ?? $values['name'] ?? $values ?? 0);
                 if ($ticketId <= 0) {
@@ -218,7 +218,7 @@ class PluginCreditalertConsumption extends CommonDBTM
                     $badge = __('Autre ticket', 'creditalert');
                     return "<span class='badge bg-info text-white creditalert-other-ticket'>{$badge}</span>";
                 }
-                return Html::entities_deep($label);
+                return htmlescape($label);
         }
 
         return parent::getSpecificValueToDisplay($field, $values, $options);
@@ -396,19 +396,19 @@ JS;
             $attr = " data-active='" . ($credit['active'] ? '1' : '0') . "'";
             $attr .= " data-expired='" . ($credit['expired'] ? '1' : '0') . "'";
             if ($credit['begin_year'] !== '') {
-                $attr .= " data-begin-year='" . Html::cleanInputText((string) $credit['begin_year']) . "'";
+                $attr .= " data-begin-year='" . htmlescape((string) $credit['begin_year']) . "'";
             }
             if ($credit['expire_date'] !== '') {
-                $attr .= " data-expire-date='" . Html::cleanInputText((string) $credit['expire_date']) . "'";
+                $attr .= " data-expire-date='" . htmlescape((string) $credit['expire_date']) . "'";
             }
             if ($credit['percent'] !== '') {
-                $attr .= " data-percent='" . Html::cleanInputText((string) $credit['percent']) . "'";
+                $attr .= " data-percent='" . htmlescape((string) $credit['percent']) . "'";
             }
             if (!empty($credit['entity_label'])) {
-                $attr .= " data-entity-label='" . Html::cleanInputText((string) $credit['entity_label']) . "'";
+                $attr .= " data-entity-label='" . htmlescape((string) $credit['entity_label']) . "'";
             }
             echo "<option value='" . (int) $creditId . "'{$attr}>";
-            echo Html::entities_deep($credit['label']);
+            echo htmlescape($credit['label']);
             echo "</option>";
         }
         echo "</select>";
@@ -735,7 +735,7 @@ JS;
         $selectedEntityLabel = '';
         $selectedEntityParts = [];
         if ($entityId > 0) {
-            $selectedEntityLabel = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+            $selectedEntityLabel = html_entity_decode(
                 Dropdown::getDropdownName('glpi_entities', $entityId)
             );
             $selectedEntityParts = array_values(array_filter(
@@ -841,7 +841,7 @@ JS;
             $entityId = (int) ($row['credit_entity_id'] ?? 0);
             if ($entityId > 0) {
                 if (!array_key_exists($entityId, $entityLabels)) {
-                    $entityLabels[$entityId] = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+                    $entityLabels[$entityId] = html_entity_decode(
                         Dropdown::getDropdownName('glpi_entities', $entityId)
                     );
                 }

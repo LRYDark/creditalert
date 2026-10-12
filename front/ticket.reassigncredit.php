@@ -1,6 +1,5 @@
 <?php
 
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 Session::checkRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_REASSIGN);
@@ -10,12 +9,12 @@ global $CFG_GLPI;
 
 $ticketId = (int) ($_GET['tickets_id'] ?? ($_POST['tickets_id'] ?? 0));
 if ($ticketId <= 0) {
-    Html::displayErrorAndDie(__('Missing ticket.', 'creditalert'));
+    throw new \Glpi\Exception\Http\BadRequestHttpException(__('Missing ticket.', 'creditalert'));
 }
 
 $ticket = new Ticket();
 if (!$ticket->getFromDB($ticketId)) {
-    Html::displayErrorAndDie(__('Ticket not found.', 'creditalert'));
+    throw new \Glpi\Exception\Http\BadRequestHttpException(__('Ticket not found.', 'creditalert'));
 }
 
 $canedit = false;
@@ -29,12 +28,12 @@ if (Session::haveRight(Entity::$rightname, UPDATE)) {
 }
 
 if (!$canedit) {
-    Html::displayRightError();
+    throw new \Glpi\Exception\Http\AccessDeniedHttpException();
 }
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('credit') || !$plugin->isActivated('credit')) {
-    Html::displayErrorAndDie(__('Credit plugin is required.', 'creditalert'));
+    throw new \Glpi\Exception\Http\BadRequestHttpException(__('Credit plugin is required.', 'creditalert'));
 }
 
 $config = PluginCreditalertConfig::getConfig();
@@ -87,7 +86,7 @@ if (empty($entityScope)) {
     $entityScope = [$ticketEntityId];
 }
 
-$selectedEntityLabel = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+$selectedEntityLabel = html_entity_decode(
     Dropdown::getDropdownName('glpi_entities', $baseEntityId)
 );
 $selectedEntityParts = array_values(array_filter(
@@ -153,7 +152,7 @@ if (isset($_POST['reassign'])) {
         if ($fieldEnd !== '') {
             $where['OR'] = [
                 "$creditTable.$fieldEnd" => null,
-                new QueryExpression(
+                new \Glpi\DBAL\QueryExpression(
                     sprintf(
                         'NOW() < %s',
                         $DB->quoteName("$creditTable.$fieldEnd")
@@ -201,12 +200,12 @@ Html::header(
 Html::displayMessageAfterRedirect();
 
 echo "<div class='card'><div class='card-body'>";
-echo "<div class='mb-3'><strong>Ticket</strong> " . (int) $ticketId . " - " . Html::entities_deep($ticket->getName()) . "</div>";
+echo "<div class='mb-3'><strong>Ticket</strong> " . (int) $ticketId . " - " . htmlescape($ticket->getName()) . "</div>";
 
 if (!empty($errors)) {
     echo "<div class='alert alert-danger'>";
     foreach ($errors as $error) {
-        echo "<div>" . Html::entities_deep($error) . "</div>";
+        echo "<div>" . htmlescape($error) . "</div>";
     }
     echo "</div>";
 }
@@ -247,8 +246,7 @@ if (empty($rows)) {
     exit;
 }
 
-echo "<form method='post' action='" . Html::cleanInputText($baseUrl) . "'>";
-echo Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken(true)]);
+echo "<form method='post' action='" . htmlescape($baseUrl) . "'>";
 echo Html::hidden('tickets_id', ['value' => $ticketId]);
 if (!empty($_REQUEST['_in_modal'])) {
     echo Html::hidden('_in_modal', ['value' => 1]);
@@ -274,10 +272,10 @@ foreach ($rows as $row) {
 
     echo "<tr>";
     echo "<td><input type='checkbox' class='creditalert-consumption-check' name='consumption_ids[]' value='{$rowId}' checked></td>";
-    echo "<td>" . Html::entities_deep($creditLabel) . "</td>";
+    echo "<td>" . htmlescape($creditLabel) . "</td>";
     echo "<td>" . Html::convDateTime($consumeDate) . "</td>";
-    echo "<td>" . getUserName($userId, $showuserlink) . "</td>";
-    echo "<td class='text-end'>" . Html::entities_deep((float) $consumed) . "</td>";
+    echo "<td>" . getUserName((int) $userId, $showuserlink) . "</td>";
+    echo "<td class='text-end'>" . htmlescape((float) $consumed) . "</td>";
     echo "</tr>";
 }
 echo "</tbody></table>";
@@ -296,7 +294,7 @@ $select = [
     "$creditTable.$fieldClient AS name",
     "$creditTable.$fieldSold AS quantity_sold",
     "$creditTable.$fieldEntity AS credit_entity_id",
-    new QueryExpression("COALESCE(SUM($consumptionTable.$fieldUsed), 0) AS consumed"),
+    new \Glpi\DBAL\QueryExpression("COALESCE(SUM($consumptionTable.$fieldUsed), 0) AS consumed"),
 ];
 $groupby = [
     "$creditTable.id",
@@ -327,7 +325,7 @@ if ($fieldActive !== '') {
 if ($fieldEnd !== '') {
     $where['OR'] = [
         "$creditTable.$fieldEnd" => null,
-        new QueryExpression(
+        new \Glpi\DBAL\QueryExpression(
             sprintf(
                 'NOW() < %s',
                 $DB->quoteName("$creditTable.$fieldEnd")
@@ -372,7 +370,7 @@ foreach ($DB->request([
     $creditEntityId = (int) ($row['credit_entity_id'] ?? 0);
     if ($creditEntityId > 0) {
         if (!array_key_exists($creditEntityId, $entityLabels)) {
-            $entityLabels[$creditEntityId] = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+            $entityLabels[$creditEntityId] = html_entity_decode(
                 Dropdown::getDropdownName('glpi_entities', $creditEntityId)
             );
         }
@@ -415,16 +413,16 @@ echo "<option value=''>" . Dropdown::EMPTY_VALUE . "</option>";
 foreach ($credits as $creditId => $credit) {
     $attr = '';
     if (!empty($credit['entity_label'])) {
-        $attr .= " data-entity-label='" . Html::cleanInputText((string) $credit['entity_label']) . "'";
+        $attr .= " data-entity-label='" . htmlescape((string) $credit['entity_label']) . "'";
     }
     if ($credit['begin_year'] !== '') {
-        $attr .= " data-begin-year='" . Html::cleanInputText((string) $credit['begin_year']) . "'";
+        $attr .= " data-begin-year='" . htmlescape((string) $credit['begin_year']) . "'";
     }
     if ($credit['percent'] !== '') {
-        $attr .= " data-percent='" . Html::cleanInputText((string) $credit['percent']) . "'";
+        $attr .= " data-percent='" . htmlescape((string) $credit['percent']) . "'";
     }
     echo "<option value='" . (int) $creditId . "'{$attr}>";
-    echo Html::entities_deep($credit['label']);
+    echo htmlescape($credit['label']);
     echo "</option>";
 }
 echo "</select>";

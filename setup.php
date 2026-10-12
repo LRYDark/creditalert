@@ -1,8 +1,8 @@
 <?php
 
-define('PLUGIN_CREDITALERT_VERSION', '1.2.0');
-define('PLUGIN_CREDITALERT_MIN_GLPI', '11.0.0');
-define('PLUGIN_CREDITALERT_MAX_GLPI', '11.0.99');
+define('PLUGIN_CREDITALERT_VERSION', '1.3.0');
+define('PLUGIN_CREDITALERT_MIN_GLPI', '12.0.0');
+define('PLUGIN_CREDITALERT_MAX_GLPI', '12.0.99');
 
 /**
  * Init hooks of the plugin.
@@ -13,7 +13,6 @@ function plugin_init_creditalert()
 {
     global $PLUGIN_HOOKS;
 
-    $PLUGIN_HOOKS['csrf_compliant']['creditalert'] = true;
     $PLUGIN_HOOKS['change_profile']['creditalert'] = [PluginCreditalertProfile::class, 'initProfile'];
 
     $plugin = new Plugin();

@@ -3,7 +3,7 @@
 class PluginCreditalertProfile extends Profile
 {
     public const RIGHTNAME = 'plugin_creditalert';
-    public static $rightname = self::RIGHTNAME;
+    public static string $rightname = self::RIGHTNAME;
 
     public const RIGHT_READ   = 1024;
     public const RIGHT_CONFIG = 2048;

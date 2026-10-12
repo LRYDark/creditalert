@@ -1,6 +1,5 @@
 <?php
 
-include('../../../inc/includes.php');
 /** @var array $CFG_GLPI */
 global $CFG_GLPI;
 
@@ -50,7 +49,7 @@ $tabs = [
 ];
 foreach ($tabs as $tabKey => $label) {
     $active = $view === $tabKey ? 'active' : '';
-    $url = Html::cleanInputText($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php?view=' . $tabKey);
+    $url = htmlescape($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php?view=' . $tabKey);
     echo "<li class='nav-item' role='presentation'>";
     echo "<a class='nav-link $active' href='$url' data-creditalert-tab>" . $label . "</a>";
     echo "</li>";
@@ -115,7 +114,7 @@ if ($view === 'credits') {
     $namesOptions = empty($uniqueNames) ? [] : array_combine($uniqueNames, $uniqueNames);
 
     // ── Filter form ──────────────────────────────────────────────────────────
-    $caFormAction = Html::cleanInputText($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php');
+    $caFormAction = htmlescape($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php');
     echo "<div class='card mb-3'><div class='card-body'>";
     echo "<form method='get' action='{$caFormAction}'>";
     echo Html::hidden('view', ['value' => 'creditalert']);
@@ -187,16 +186,14 @@ if ($view === 'credits') {
     $caJsNoName    = json_encode(__('Veuillez saisir un nom pour ce favori.', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
     $caJsNone      = addslashes(__('Aucun favori sauvegarde', 'creditalert'));
     $caJsAjaxUrl   = json_encode(
-        Html::cleanInputText($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/ajax/favorites.php'),
+        htmlescape($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/ajax/favorites.php'),
         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT
     );
-    $caJsCsrfToken = json_encode(Session::getNewCSRFToken(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 
     echo Html::scriptBlock("
 (function() {
     var ajaxUrl  = {$caJsAjaxUrl};
     var baseUrl  = {$caJsBaseUrl};
-    var csrfToken = {$caJsCsrfToken};
     var favCache = null;
 
     function escH(s) {
@@ -222,8 +219,7 @@ if ($view === 'credits') {
     }
 
     var ajaxHeaders = {
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-Glpi-Csrf-Token': csrfToken
+        'X-Requested-With': 'XMLHttpRequest'
     };
 
     function ajaxGet(url) {
@@ -391,7 +387,7 @@ if (!document.getElementById('ca-alert-style')) {
         } else {
             foreach ($caRows as $caRow) {
                 $caEntityId   = (int) ($caRow['entities_id'] ?? 0);
-                $caEntityName = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+                $caEntityName = html_entity_decode(
                     Dropdown::getDropdownName('glpi_entities', $caEntityId)
                 );
                 $caCreditName = (string) ($caRow['client_label'] ?? '');
@@ -439,8 +435,8 @@ if (!document.getElementById('ca-alert-style')) {
                     : "<span class='badge text-bg-secondary'>" . __('Inactif', 'creditalert') . "</span>";
 
                 echo "<tr{$caRowAttr}>";
-                echo "<td>" . Html::entities_deep($caEntityName) . "</td>";
-                echo "<td>" . Html::entities_deep($caCreditName) . "</td>";
+                echo "<td>" . htmlescape($caEntityName) . "</td>";
+                echo "<td>" . htmlescape($caCreditName) . "</td>";
                 echo "<td class='text-end'>" . $fmtNum($caConsumed) . "</td>";
                 echo "<td class='text-end'>" . $fmtNum($caSold) . "</td>";
                 echo "<td{$caDateStyle}>" . htmlspecialchars($caDateLbl) . "</td>";
@@ -490,7 +486,7 @@ if (!document.getElementById('ca-alert-style')) {
     $selectedEntityLabel = '';
     $selectedEntityParts = [];
     if ($entityId > 0) {
-        $selectedEntityLabel = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+        $selectedEntityLabel = html_entity_decode(
             Dropdown::getDropdownName('glpi_entities', $entityId)
         );
         $selectedEntityParts = array_values(array_filter(
@@ -573,7 +569,7 @@ if (!document.getElementById('ca-alert-style')) {
             $fullEntityLabel = '';
             if ($creditEntityId > 0) {
                 if (!array_key_exists($creditEntityId, $entityLabels)) {
-                    $entityLabels[$creditEntityId] = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
+                    $entityLabels[$creditEntityId] = html_entity_decode(
                         Dropdown::getDropdownName('glpi_entities', $creditEntityId)
                     );
                 }
@@ -785,7 +781,7 @@ JS;
 
     // Tickets filter (shown when mode is tickets)
     $displayTickets = $filterMode === 'tickets' ? '' : 'display:none;';
-    $ticketIdsValue = Html::cleanInputText($ticketIdsRaw);
+    $ticketIdsValue = htmlescape($ticketIdsRaw);
     echo "<div class='row g-3' id='creditalert_filter_tickets' style='{$displayTickets}'>";
     echo "<div class='col-12'>";
     echo "<label class='form-label mb-1'>" . __('Liste des IDs de tickets (un par ligne)', 'creditalert') . "</label>";
@@ -887,7 +883,7 @@ JS;
                     echo "<div class='alert alert-info' style='margin-bottom:10px;'>";
                     echo "<strong>" . __('Tickets exclus', 'creditalert') . " :</strong><ul class='mb-0 mt-1'>";
                     foreach ($ticketFilterWarnings as $w) {
-                        echo "<li>" . Html::entities_deep($w) . "</li>";
+                        echo "<li>" . htmlescape($w) . "</li>";
                     }
                     echo "</ul></div>";
                 }
@@ -1333,7 +1329,7 @@ JS;
 
             if ($triggerExport) {
                 $exportUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/consumptions.export.php';
-                echo "<iframe src='" . Html::cleanInputText($exportUrl) . "' style='display:none' aria-hidden='true'></iframe>";
+                echo "<iframe src='" . htmlescape($exportUrl) . "' style='display:none' aria-hidden='true'></iframe>";
                 $js = <<<JS
 (function() {
   try {

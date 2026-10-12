@@ -2,7 +2,7 @@
 
 class PluginCreditalertCreditItem extends CommonDBTM
 {
-    public static $rightname = PluginCreditalertProfile::RIGHTNAME;
+    public static string $rightname = PluginCreditalertProfile::RIGHTNAME;
     public $table = 'glpi_plugin_creditalert_vcredits';
     public $no_auto_fields = true;
 
@@ -160,7 +160,7 @@ class PluginCreditalertCreditItem extends CommonDBTM
                 $ticketId = (int) $values;
                 $url = Ticket::getFormURLWithID($ticketId);
                 $label = Dropdown::getDropdownName('glpi_tickets', $ticketId);
-                return "<a href='{$url}'>" . Html::entities_deep($label ?: $ticketId) . '</a>';
+                return "<a href='{$url}'>" . htmlescape($label ?: $ticketId) . '</a>';
         }
         return parent::getSpecificValueToDisplay($field, $values, $options);
     }

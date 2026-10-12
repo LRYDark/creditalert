@@ -1,6 +1,5 @@
 <?php
 
-include('../../../../inc/includes.php');
 
 Session::checkLoginUser();
 Session::checkRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_CONFIG);
@@ -11,10 +10,6 @@ class_exists('PluginCreditalertConfig');
 
 header('Content-Type: application/json; charset=UTF-8');
 Html::header_nocache();
-
-// Preserve the CSRF token so repeated AJAX calls (mass add/delete) keep working
-// without a full page reload.
-Session::checkCSRF($_POST, true);
 
 $action  = (string) ($_POST['action'] ?? '');
 $success = true;

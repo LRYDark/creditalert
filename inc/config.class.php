@@ -2,7 +2,7 @@
 
 class PluginCreditalertConfig extends CommonDBTM
 {
-    public static $rightname = PluginCreditalertProfile::RIGHTNAME;
+    public static string $rightname = PluginCreditalertProfile::RIGHTNAME;
     private static $_instance = null;
 
     public static function getTypeName($nb = 0)
@@ -85,7 +85,7 @@ class PluginCreditalertConfig extends CommonDBTM
             if (Session::haveRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_CONFIG)) {
                 self::showConfigPage();
             } else {
-                Html::displayRightError();
+                throw new \Glpi\Exception\Http\AccessDeniedHttpException();
             }
         }
         return true;
@@ -526,7 +526,7 @@ class PluginCreditalertConfig extends CommonDBTM
 
 class PluginCreditalertEntityConfig extends CommonDBTM
 {
-    public static $rightname = PluginCreditalertProfile::RIGHTNAME;
+    public static string $rightname = PluginCreditalertProfile::RIGHTNAME;
 
     public static function getTable($classname = null)
     {

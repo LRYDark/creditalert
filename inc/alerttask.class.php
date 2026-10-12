@@ -4,7 +4,7 @@ use Glpi\DBAL\QueryExpression;
 
 class PluginCreditalertAlertTask extends CommonDBTM
 {
-    public static $rightname = PluginCreditalertProfile::RIGHTNAME;
+    public static string $rightname = PluginCreditalertProfile::RIGHTNAME;
     private const NOTIFICATION_TABLE = 'glpi_plugin_creditalert_notifications';
 
     public static function cronInfo($name)

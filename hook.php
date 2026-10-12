@@ -191,7 +191,7 @@ function plugin_creditalert_timeline_actions(array $params): void
         CSS;
 
         $buttonId = 'creditalert_reassign_btn_' . $ticketId;
-        $label = Html::entities_deep(__('Reaffecter credit', 'creditalert'));
+        $label = htmlescape(__('Reaffecter credit', 'creditalert'));
         echo "<style id='creditalert_modal_css'>{$modalCss}</style>";
         echo $modal;
         echo "<li class='creditalert-timeline-action'>";

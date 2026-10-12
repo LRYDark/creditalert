@@ -1,6 +1,5 @@
 <?php
 
-include('../../../inc/includes.php');
 
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
@@ -30,7 +29,7 @@ if (!in_array($exportFormat, ['xlsx', 'csv'], true)) {
 }
 
 if (empty($ids)) {
-    Html::displayErrorAndDie(__('Aucun element selectionne.', 'creditalert'));
+    throw new \Glpi\Exception\Http\BadRequestHttpException(__('Aucun element selectionne.', 'creditalert'));
 }
 
 /** @var DBmysql $DB */

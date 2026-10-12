@@ -2,7 +2,7 @@
 
 class PluginCreditalertCreditSummary extends CommonDBTM
 {
-    public static $rightname = PluginCreditalertProfile::RIGHTNAME;
+    public static string $rightname = PluginCreditalertProfile::RIGHTNAME;
     public $table = 'glpi_plugin_creditalert_vcredits';
     public $no_auto_fields = true;
     private const SEARCH_BASE = 2000;
@@ -176,7 +176,7 @@ class PluginCreditalertCreditSummary extends CommonDBTM
                 if ($creditId) {
                     global $CFG_GLPI;
                     $baseUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/credittickets.php?credit_id=' . $creditId;
-                    $label   = Html::entities_deep((float) $quantity);
+                    $label   = htmlescape((float) $quantity);
 
                     $modalId = 'creditalert_tickets_' . $creditId;
                     $modal = '<style>.modal-dialog.modal-xl-credit { max-width: 95vw; } .modal-xl-credit iframe { min-height: 80vh !important; }</style>';
@@ -194,7 +194,7 @@ class PluginCreditalertCreditSummary extends CommonDBTM
                     return $modal . $link;
                 }
 
-                return Html::entities_deep((float) $quantity);
+                return htmlescape((float) $quantity);
         }
 
         return parent::getSpecificValueToDisplay($field, $values, $options);

@@ -2,7 +2,7 @@
 
 class PluginCreditalertMenu extends CommonGLPI
 {
-    public static $rightname = PluginCreditalertProfile::RIGHTNAME;
+    public static string $rightname = PluginCreditalertProfile::RIGHTNAME;
 
     public static function getMenuName()
     {

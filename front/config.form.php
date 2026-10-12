@@ -1,7 +1,6 @@
 <?php
 
 if (!defined('GLPI_ROOT')) {
-    include '../../../inc/includes.php';
 }
 
 $from_tab = $GLOBALS['PLUGIN_CREDITALERT_FROM_TAB'] ?? false;
@@ -10,23 +9,12 @@ Session::checkRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfi
 
 $configItem = PluginCreditalertConfig::getInstance();
 $config = PluginCreditalertConfig::getConfig();
-$csrf_token = Session::getNewCSRFToken(true);
 
 $form_action = $configItem->getFormURL();
 if ($from_tab) {
     $form_action .= '?forcetab=' . urlencode('PluginCreditalertConfig$1');
 }
 $redirect = $form_action;
-
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    if (
-        empty($_POST['_glpi_csrf_token'])
-        || !defined('GLPI_VERSION')
-        || version_compare((string) GLPI_VERSION, '11.0.0', '<')
-    ) {
-        Session::checkCSRF($_POST, true);
-    }
-}
 
 if (isset($_POST['update'])) {
     PluginCreditalertConfig::updateConfig($_POST);
@@ -65,7 +53,6 @@ echo "<div class='tab-pane active' id='creditalert-tab-general' role='tabpanel' 
 
 // --- Form global ---
 echo "<form name='creditalert_config' method='post' action='" . $form_action . "' class='mb-3'>";
-echo Html::hidden('_glpi_csrf_token', ['value' => $csrf_token]);
 echo Html::hidden('id', ['value' => $configItem->fields['id'] ?? 1]);
 
 // Card General
@@ -236,12 +223,12 @@ echo "</div>";
 
 echo "<div class='col-md-2'>";
 echo "<label class='fw-semibold mb-1 d-block'>" . __('Seuil (%)', 'creditalert') . "</label>";
-echo "<input type='number' min='0' max='100' id='creditalert_threshold_entity' class='form-control' placeholder='" . Html::cleanInputText(__('Herite si vide', 'creditalert')) . "'>";
+echo "<input type='number' min='0' max='100' id='creditalert_threshold_entity' class='form-control' placeholder='" . htmlescape(__('Herite si vide', 'creditalert')) . "'>";
 echo "</div>";
 
 echo "<div class='col-md-4'>";
 echo "<label class='fw-semibold mb-1 d-block'>" . __('Emails (CSV)', 'creditalert') . "</label>";
-echo "<input type='text' id='creditalert_emails_entity' class='form-control' placeholder='" . Html::cleanInputText(__('Emails (CSV)', 'creditalert')) . "'>";
+echo "<input type='text' id='creditalert_emails_entity' class='form-control' placeholder='" . htmlescape(__('Emails (CSV)', 'creditalert')) . "'>";
 echo "</div>";
 
 echo "<div class='col-md-2 text-end'>";
@@ -266,7 +253,7 @@ echo "<input type='hidden' id='creditalert_edit_eid'>";
 echo "<div class='mb-3'><span class='text-muted'>" . Entity::getTypeName(1) . " :</span> <strong id='creditalert_edit_name'></strong></div>";
 echo "<div class='mb-3'>";
 echo "<label class='fw-semibold mb-1 d-block' for='creditalert_edit_threshold'>" . __('Seuil (%)', 'creditalert') . "</label>";
-echo "<input type='number' min='0' max='100' id='creditalert_edit_threshold' class='form-control' placeholder='" . Html::cleanInputText(__('Herite si vide', 'creditalert')) . "'>";
+echo "<input type='number' min='0' max='100' id='creditalert_edit_threshold' class='form-control' placeholder='" . htmlescape(__('Herite si vide', 'creditalert')) . "'>";
 echo "</div>";
 echo "<div class='mb-3'>";
 echo "<label class='fw-semibold mb-1 d-block' for='creditalert_edit_emails'>" . __('Emails (CSV)', 'creditalert') . "</label>";
@@ -320,12 +307,10 @@ echo Html::scriptBlock($tabJs);
 
 // Gestion AJAX des seuils par entité (ajout rapide / suppression / édition).
 $entityAjaxUrlJs = json_encode($entityAjaxUrl);
-$csrfJs = json_encode($csrf_token);
 $msgConfirmDelete = json_encode(__('Supprimer ce seuil par entite ?', 'creditalert'));
 $entityJs = <<<JS
 $(function() {
     var url = {$entityAjaxUrlJs};
-    var token = {$csrfJs};
     var \$table = $('#creditalert_entity_table');
     var \$msg = $('#creditalert_entity_msg');
 
@@ -337,7 +322,6 @@ $(function() {
     }
 
     function send(data, cb) {
-        data._glpi_csrf_token = token;
         $.post(url, data, function(resp) {
             if (resp && typeof resp.html !== 'undefined') { \$table.html(resp.html); }
             flash(resp);
