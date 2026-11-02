@@ -7,7 +7,8 @@ class PluginCreditalertConfig extends CommonDBTM
 
     public static function getTypeName($nb = 0)
     {
-        return __('<span class="d-flex align-items-center"><i class="fa-solid fa-sliders me-2"></i>Configuration des alertes de credit</span>', "creditalert");
+        // Texte simple : GLPI l'échappe dans ses messages (« Élément modifié : … ») ; l'icône est dans l'onglet.
+        return __('Configuration des alertes de credit', 'creditalert');
     }
 
     public static function getTable($classname = null)

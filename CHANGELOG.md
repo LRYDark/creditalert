@@ -9,6 +9,8 @@
   production le 02/11/2026).
 - CI GitHub : syntaxe sur PHP 8.3 à 8.5, installation réelle dans GLPI 12.0.1, chargement de chaque classe,
   parcours des pages et de leurs onglets.
+- **Affichage** : le message « Élément modifié » après l'enregistrement de la configuration affichait du code HTML
+  (`<span class="d-flex …">`) au lieu du nom.
 
 ## 1.3.0 — 2026-10-12
 
