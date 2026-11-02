@@ -1,0 +1,3 @@
+# Plugins installés et activés par la CI avant celui-ci : « clé URL-de-l-archive ».
+# Credit Alert exige le plugin Crédit (marketplace) ; 1.15.x = série GLPI 11.
+credit https://github.com/pluginsGLPI/credit/releases/download/1.15.8/glpi-credit-1.15.8.tar.bz2
