@@ -278,4 +278,16 @@ class PluginCreditalertCreditSummary extends CommonDBTM
     {
         return false;
     }
+
+    /**
+     * Adresse de la liste : l'onglet « Synthèse des crédits » de la page du plugin. GLPI y renvoie à l'ouverture d'une
+     * recherche enregistrée (SavedSearch::load()), avec les paramètres enregistrés.
+     */
+    public static function getSearchURL($full = true)
+    {
+        /** @var array $CFG_GLPI */
+        global $CFG_GLPI;
+
+        return ($full ? $CFG_GLPI['root_doc'] : '') . '/plugins/creditalert/front/creditlist.php?view=credits';
+    }
 }

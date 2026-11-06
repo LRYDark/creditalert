@@ -118,26 +118,11 @@ SQL;
             $DB->doQuery($query);
         }
 
+        // Favoris maison de l'onglet « Alertes de crédit » : repris en recherches sauvegardées de GLPI (privées, à
+        // leur propriétaire), puis la table disparaît. Un favori non repris garde la table pour la mise à jour suivante.
         $favoritesTable = 'glpi_plugin_creditalert_favorites';
-        if (!$DB->tableExists($favoritesTable)) {
-            $query = <<<SQL
-                CREATE TABLE `$favoritesTable` (
-                    `id` int $keySign NOT NULL auto_increment,
-                    `users_id` int $keySign NOT NULL DEFAULT '0',
-                    `name` varchar(255) NOT NULL DEFAULT '',
-                    `ca_names` text,
-                    `ca_status` varchar(20) NOT NULL DEFAULT 'all',
-                    `ca_show_over` tinyint NOT NULL DEFAULT '1',
-                    `date_creation` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    KEY `users_id` (`users_id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC;
-SQL;
-            $DB->doQuery($query);
-        } else {
-            if (!$DB->fieldExists($favoritesTable, 'ca_show_over')) {
-                $migration->addField($favoritesTable, 'ca_show_over', 'bool', ['after' => 'ca_status', 'value' => 1]);
-            }
+        if ($DB->tableExists($favoritesTable) && PluginCreditalertSavedsearch::migrateFavorites($favoritesTable)) {
+            $migration->dropTable($favoritesTable);
         }
 
         // Drop legacy cache table if present (no longer used)
@@ -214,6 +199,31 @@ SQL;
                 'glpi_crontasks',
                 ['itemtype' => [PluginCreditalertAlertTask::class, \GlpiPlugin\Creditalert\AlertTask::class]]
             );
+        }
+
+        // Recherches sauvegardées des listes du plugin : sans lui, GLPI ne saurait plus les ouvrir
+        $savedItemtypes = [
+            'PluginCreditalertConsumption',
+            'PluginCreditalertCreditItem',
+            'PluginCreditalertCreditSummary',
+        ];
+        if ($DB->tableExists('glpi_savedsearches')) {
+            $savedIds = [];
+            foreach ($DB->request([
+                'SELECT' => ['id'],
+                'FROM'   => 'glpi_savedsearches',
+                'WHERE'  => ['itemtype' => $savedItemtypes],
+            ]) as $row) {
+                $savedIds[] = (int) $row['id'];
+            }
+            if (!empty($savedIds)) {
+                foreach (['glpi_savedsearches_users', 'glpi_savedsearches_alerts'] as $linkTable) {
+                    if ($DB->tableExists($linkTable)) {
+                        $DB->delete($linkTable, ['savedsearches_id' => $savedIds]);
+                    }
+                }
+                $DB->delete('glpi_savedsearches', ['id' => $savedIds]);
+            }
         }
 
         return true;

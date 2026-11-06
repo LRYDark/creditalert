@@ -8,7 +8,7 @@ class PluginCreditalertCreditItem extends CommonDBTM
 
     public static function getTypeName($nb = 0)
     {
-        return _n('Alerte de credit', 'Alertes de credit', $nb, 'creditalert');
+        return _n('Gestion des crédits', 'Gestion des crédits', $nb, 'creditalert');
     }
 
     public static function getIcon()
@@ -221,5 +221,17 @@ JS;
 .creditalert-row-over { background-color: var(--creditalert-row-color, {$over}) !important; }
 </style>";
         echo Html::scriptBlock($js);
+    }
+
+    /**
+     * Adresse de la liste : l'onglet « Alertes de crédit » de la page du plugin. GLPI y renvoie à l'ouverture d'une
+     * recherche enregistrée (SavedSearch::load()), avec les paramètres enregistrés.
+     */
+    public static function getSearchURL($full = true)
+    {
+        /** @var array $CFG_GLPI */
+        global $CFG_GLPI;
+
+        return ($full ? $CFG_GLPI['root_doc'] : '') . '/plugins/creditalert/front/creditlist.php?view=creditalert';
     }
 }

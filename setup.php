@@ -1,6 +1,6 @@
 <?php
 
-define('PLUGIN_CREDITALERT_VERSION', '1.3.1');
+define('PLUGIN_CREDITALERT_VERSION', '1.3.2');
 define('PLUGIN_CREDITALERT_MIN_GLPI', '12.0.0');
 define('PLUGIN_CREDITALERT_MAX_GLPI', '12.0.99');
 
@@ -37,6 +37,9 @@ function plugin_init_creditalert()
         $PLUGIN_HOOKS['submenu_entry']['creditalert']['search'] = 'front/creditlist.php';
         $PLUGIN_HOOKS['submenu_entry']['creditalert']['config'] = 'front/config.form.php';
         $PLUGIN_HOOKS['timeline_actions']['creditalert'] = 'plugin_creditalert_timeline_actions';
+        // Recherches sauvegardées des formulaires du plugin : pas de compteur (cf. PluginCreditalertSavedsearch)
+        $PLUGIN_HOOKS['pre_item_add']['creditalert'] = ['SavedSearch' => 'plugin_creditalert_savedsearch_nocount'];
+        $PLUGIN_HOOKS['pre_item_update']['creditalert'] = ['SavedSearch' => 'plugin_creditalert_savedsearch_nocount'];
     }
 }
 
@@ -48,7 +51,7 @@ function plugin_init_creditalert()
 function plugin_version_creditalert()
 {
     return [
-        'name'         => __('Credit Alert', 'creditalert'),
+        'name'         => __('Gestion des crédits', 'creditalert'),
         'version'      => PLUGIN_CREDITALERT_VERSION,
         'author'       => 'REINERT Joris',
         'license'      => 'GPLv3',
@@ -79,7 +82,7 @@ function plugin_creditalert_check_prerequisites(){
     if ($plugin->isInstalled('credit') || $plugin->isActivated('credit')) {
         return true;
     } else {
-        echo "Le plugin de crédit doit être installé pour utiliser CreditAlert.";
+        echo "Le plugin de crédit doit être installé pour utiliser Gestion des crédits.";
         return false;
     }
 }

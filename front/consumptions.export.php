@@ -47,6 +47,8 @@ foreach ($DB->request([
         "$view.consumed AS consumed",
         "$view.consume_date AS consume_date",
         "$view.ticket_id AS ticket_id",
+        "$view.credit_begin_date AS credit_begin_date",
+        "$view.credit_end_date AS credit_end_date",
         'glpi_tickets.type AS ticket_type',
         'glpi_tickets.status AS ticket_status',
         'glpi_tickets.date AS ticket_open_date',
@@ -129,6 +131,15 @@ $normalize = static function ($value): string {
     $text = str_replace("\xC2\xA0", ' ', $text);
     return trim($text);
 };
+// Dates du crédit imputé : le jour seul (AAAA-MM-JJ), vide pour un ticket sans crédit
+$creditDay = static function ($value): string {
+    $value = trim((string) ($value ?? ''));
+    if ($value === '' || strpos($value, '0000-00-00') === 0) {
+        return '';
+    }
+    $ts = strtotime($value);
+    return $ts === false ? '' : date('Y-m-d', $ts);
+};
 $getCategoryLabel = static function (int $categoryId) use ($normalize): string {
     static $cache = [];
     if ($categoryId <= 0) {
@@ -167,7 +178,11 @@ foreach ($rows as $index => $row) {
     $maxCategoryParts = max($maxCategoryParts, count($parts));
 }
 
-$entityIdForExport = (int) ($rows[0]['entities_id'] ?? 0);
+// Client dans le nom du fichier (si la configuration le demande) : seulement si toutes les lignes sont du même
+$exportEntities = array_unique(array_map(static function ($row) {
+    return (int) ($row['entities_id'] ?? 0);
+}, $rows));
+$entityIdForExport = count($exportEntities) === 1 ? (int) reset($exportEntities) : null;
 $filename = preg_replace('/\.csv$/', '', PluginCreditalertConfig::getExportFilename($entityIdForExport)) . '.' . $exportFormat;
 
 $categoryHeaders = [__('Categorie', 'creditalert')];
@@ -193,6 +208,8 @@ $headers = array_merge($headers, $categoryHeaders, [
     __('Taches', 'creditalert'),
     __('Credit consomme', 'creditalert'),
     __('Credit associe au ticket', 'creditalert'),
+    __('Date de début du crédit', 'creditalert'),
+    __('Date de fin du crédit', 'creditalert'),
 ]);
 
 $columnCount = count($headers);
@@ -275,6 +292,8 @@ foreach ($rows as $index => $row) {
         null, // tasks cell handled at output time (rich text or plain text)
         ($row['consumed'] ?? '') === '' ? '' : (float) $row['consumed'],
         $normalize($row['credit_label'] ?? ''),
+        $creditDay($row['credit_begin_date'] ?? null),
+        $creditDay($row['credit_end_date'] ?? null),
     ]);
 
     $exportRows[] = [

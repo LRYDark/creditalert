@@ -238,3 +238,17 @@ function plugin_creditalert_timeline_actions(array $params): void
         echo Html::scriptBlock($js);
     }
 }
+
+/**
+ * Recherches sauvegardées des onglets « Consommations par client » et « Alertes de crédit » : pas de compteur dans
+ * le panneau de GLPI, qui compterait sans les filtres du plugin.
+ *
+ * @param SavedSearch $item
+ * @return void
+ */
+function plugin_creditalert_savedsearch_nocount($item): void
+{
+    if ($item instanceof SavedSearch) {
+        PluginCreditalertSavedsearch::disableCount($item);
+    }
+}

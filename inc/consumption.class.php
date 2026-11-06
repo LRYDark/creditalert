@@ -22,6 +22,14 @@ class PluginCreditalertConsumption extends CommonDBTM
     public const OPT_TICKET_END_DATE = self::SEARCH_BASE + 9;
     public const OPT_TICKET_ID = self::SEARCH_BASE + 10;
     public const OPT_TICKET_FILTER = self::SEARCH_BASE + 11;
+    public const OPT_CREDIT_BEGIN_DATE = self::SEARCH_BASE + 12;
+    public const OPT_CREDIT_END_DATE = self::SEARCH_BASE + 13;
+    public const OPT_CREDIT_TYPES = self::SEARCH_BASE + 14;
+    public const OPT_CREDIT_PERIOD = self::SEARCH_BASE + 15;
+    /** Sépare les mots « Types de crédit » dans la valeur du critère OPT_CREDIT_TYPES. */
+    public const TYPES_SEPARATOR = '|';
+    /** Nombre de mots « Types de crédit » retenus au plus. */
+    public const TYPES_MAX = 20;
     public const TICKET_FILTER_SESSION_TOKEN = '__creditalert_ticket_filter__';
 
     public static function getTypeName($nb = 0)
@@ -182,6 +190,51 @@ class PluginCreditalertConsumption extends CommonDBTM
             'massiveaction' => false,
         ];
 
+        $tab[] = [
+            'id'       => self::OPT_CREDIT_BEGIN_DATE,
+            'table'    => $table,
+            'field'    => 'credit_begin_date',
+            'name'     => __('Date de début du crédit', 'creditalert'),
+            'datatype' => 'date',
+            'itemtype' => $itemtype,
+            'massiveaction' => false,
+        ];
+
+        $tab[] = [
+            'id'       => self::OPT_CREDIT_END_DATE,
+            'table'    => $table,
+            'field'    => 'credit_end_date',
+            'name'     => __('Date de fin du crédit', 'creditalert'),
+            'datatype' => 'date',
+            'itemtype' => $itemtype,
+            'massiveaction' => false,
+        ];
+
+        // Critères internes du filtre « Consommations » (ni affichés ni proposés) : traduits en SQL par addWhere().
+        $tab[] = [
+            'id'            => self::OPT_CREDIT_TYPES,
+            'table'         => $table,
+            'field'         => 'credit_label',
+            'name'          => 'credit_types',
+            'datatype'      => 'number',
+            'massiveaction' => false,
+            'nosearch'      => true,
+            'nodisplay'     => true,
+            'itemtype'      => $itemtype,
+        ];
+
+        $tab[] = [
+            'id'            => self::OPT_CREDIT_PERIOD,
+            'table'         => $table,
+            'field'         => 'credit_begin_date',
+            'name'          => 'credit_period',
+            'datatype'      => 'number',
+            'massiveaction' => false,
+            'nosearch'      => true,
+            'nodisplay'     => true,
+            'itemtype'      => $itemtype,
+        ];
+
         return $tab;
     }
 
@@ -244,6 +297,41 @@ class PluginCreditalertConsumption extends CommonDBTM
     public static function addWhere($link, $nott, $itemtype, $ID, $searchtype, $value)
     {
         $intId = (int) $ID;
+
+        // « Types de crédit » : le nom du crédit contient l'un des mots (LIKE, interclassement de la base :
+        // majuscules et accents ignorés). La valeur porte les mots elle-même : pas de session, la recherche
+        // enregistrée et la pagination retrouvent le même filtre.
+        if ($intId === self::OPT_CREDIT_TYPES && $searchtype === 'equals') {
+            $words = self::parseTypes((string) $value);
+            if (empty($words)) {
+                return '1=1';
+            }
+            $field = DBmysql::quoteName(self::getTable()) . '.' . DBmysql::quoteName('credit_label');
+            $likes = [];
+            foreach ($words as $word) {
+                $likes[] = $field . ' LIKE ' . DBmysql::quoteValue('%' . self::escapeLike($word) . '%');
+            }
+            $sql = '(' . implode(' OR ', $likes) . ')';
+            return $nott ? 'NOT ' . $sql : $sql;
+        }
+
+        // « Dates appliquées aux crédits » : crédits dont la période recoupe les dates choisies (début ou fin
+        // absents = période ouverte de ce côté). Valeur « AAAA-MM-JJ|AAAA-MM-JJ », un côté pouvant être vide.
+        if ($intId === self::OPT_CREDIT_PERIOD && $searchtype === 'equals') {
+            [$start, $stop] = self::parsePeriod((string) $value);
+            $table = DBmysql::quoteName(self::getTable());
+            $conditions = [$table . '.' . DBmysql::quoteName('has_consumption') . ' = 1'];
+            if ($start !== '') {
+                $end = $table . '.' . DBmysql::quoteName('credit_end_date');
+                $conditions[] = "($end IS NULL OR $end >= " . DBmysql::quoteValue($start . ' 00:00:00') . ')';
+            }
+            if ($stop !== '') {
+                $begin = $table . '.' . DBmysql::quoteName('credit_begin_date');
+                $conditions[] = "($begin IS NULL OR $begin <= " . DBmysql::quoteValue($stop . ' 23:59:59') . ')';
+            }
+            $sql = '(' . implode(' AND ', $conditions) . ')';
+            return $nott ? 'NOT ' . $sql : $sql;
+        }
 
         if ($intId === self::OPT_CREDIT_ID && $searchtype === 'equals' && $value === self::CREDIT_FILTER_SESSION_TOKEN) {
             $ids = $_SESSION['plugin_creditalert']['credits_filter'] ?? [];
@@ -880,6 +968,279 @@ JS;
             ];
         }
 
+        return $credits;
+    }
+
+    /**
+     * Adresse de la liste : l'onglet « Consommations par client » de la page du plugin. GLPI y renvoie à
+     * l'ouverture d'une recherche enregistrée (SavedSearch::load()), avec les paramètres du formulaire.
+     */
+    public static function getSearchURL($full = true)
+    {
+        /** @var array $CFG_GLPI */
+        global $CFG_GLPI;
+
+        return ($full ? $CFG_GLPI['root_doc'] : '') . '/plugins/creditalert/front/creditlist.php?view=consumptions';
+    }
+
+    /**
+     * Mots « Types de crédit » : depuis la liste du formulaire ou la valeur du critère (mots séparés par
+     * TYPES_SEPARATOR). Espaces réduits, doublons retirés sans tenir compte des majuscules.
+     *
+     * @param mixed $raw
+     * @return string[]
+     */
+    public static function parseTypes($raw): array
+    {
+        $values = is_array($raw) ? $raw : explode(self::TYPES_SEPARATOR, (string) $raw);
+        $words = [];
+        foreach ($values as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $value = html_entity_decode((string) $value, ENT_QUOTES, 'UTF-8');
+            $value = trim((string) preg_replace('/\s+/u', ' ', str_replace(self::TYPES_SEPARATOR, ' ', $value)));
+            if ($value === '' || mb_strlen($value) > 255) {
+                continue;
+            }
+            $words[mb_strtolower($value)] = $value;
+        }
+        return array_slice(array_values($words), 0, self::TYPES_MAX);
+    }
+
+    /**
+     * Période « AAAA-MM-JJ|AAAA-MM-JJ » → [début, fin], chaque côté vide s'il est absent ou invalide.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function parsePeriod(string $raw): array
+    {
+        $parts = explode('|', $raw);
+        $out = [];
+        foreach ([0, 1] as $index) {
+            $date = trim((string) ($parts[$index] ?? ''));
+            $out[] = self::isValidDate($date) ? $date : '';
+        }
+        return $out;
+    }
+
+    public static function isValidDate(string $date): bool
+    {
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $date, $m) !== 1) {
+            return false;
+        }
+        return checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
+    }
+
+    /** Neutralise les jokers de LIKE (%, _) et l'antislash dans un mot saisi. */
+    public static function escapeLike(string $word): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $word);
+    }
+
+    /**
+     * Entités choisies dans le filtre (liste, ou entier des anciens liens), limitées à celles que la session
+     * voit. L'entité racine (0) ne restreint rien : elle vaut « Toutes les entités ».
+     *
+     * @param mixed $raw
+     * @return int[]
+     */
+    public static function normalizeEntityIds($raw): array
+    {
+        $raw = is_array($raw) ? $raw : [$raw];
+        $ids = [];
+        foreach ($raw as $value) {
+            $id = is_scalar($value) ? (int) $value : 0;
+            if ($id > 0 && Session::haveAccessToEntity($id)) {
+                $ids[$id] = $id;
+            }
+        }
+        return array_values($ids);
+    }
+
+    /**
+     * Entités choisies et toutes leurs sous-entités.
+     *
+     * @param int[] $entityIds
+     * @return int[]
+     */
+    public static function getEntityScope(array $entityIds): array
+    {
+        $scope = [];
+        foreach ($entityIds as $entityId) {
+            $sons = getSonsOf('glpi_entities', (int) $entityId);
+            if (!is_array($sons) || empty($sons)) {
+                $sons = [(int) $entityId];
+            }
+            foreach ($sons as $son) {
+                $scope[(int) $son] = (int) $son;
+            }
+        }
+        return array_values($scope);
+    }
+
+    /** Colonne « date de début » de la table des crédits (pas de réglage dédié), '' si aucune. */
+    public static function getCreditBeginField(): string
+    {
+        /** @var DBmysql $DB */
+        global $DB;
+
+        $config = PluginCreditalertConfig::getConfig();
+        foreach (['begin_date', 'date_begin', 'start_date'] as $candidate) {
+            if ($DB->fieldExists($config['credit_table'], $candidate)) {
+                return $candidate;
+            }
+        }
+        return '';
+    }
+
+    /** @return string[] parties du nom complet d'une entité (« A > B > C ») */
+    private static function getEntityParts(int $entityId): array
+    {
+        static $cache = [];
+        if (!array_key_exists($entityId, $cache)) {
+            $label = html_entity_decode((string) Dropdown::getDropdownName('glpi_entities', $entityId), ENT_QUOTES, 'UTF-8');
+            $cache[$entityId] = array_values(array_filter(
+                array_map('trim', explode('>', $label)),
+                static function ($part) {
+                    return $part !== '';
+                }
+            ));
+        }
+        return $cache[$entityId];
+    }
+
+    /**
+     * Noms de crédit des entités actives de la session, sans doublon : suggestions du champ « Types de crédit ».
+     *
+     * @return string[]
+     */
+    public static function getCreditNames(): array
+    {
+        /** @var DBmysql $DB */
+        global $DB;
+
+        $active = $_SESSION['glpiactiveentities'] ?? [];
+        $active = array_values(array_map('intval', is_array($active) ? $active : [$active]));
+        if (empty($active)) {
+            return [];
+        }
+        $config = PluginCreditalertConfig::getConfig();
+        $creditTable = $config['credit_table'];
+        $fieldClient = $config['field_client'];
+
+        $names = [];
+        foreach ($DB->request([
+            'SELECT'   => ["$creditTable.$fieldClient AS name"],
+            'DISTINCT' => true,
+            'FROM'     => $creditTable,
+            'WHERE'    => ["$creditTable.{$config['field_entity']}" => $active],
+            'ORDER'    => ["$creditTable.$fieldClient"],
+        ]) as $row) {
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($name !== '') {
+                $names[mb_strtolower($name)] = $name;
+            }
+        }
+        return array_values($names);
+    }
+
+    /**
+     * Crédits du champ « Crédits » du filtre : ceux des entités choisies (sous-entités comprises), réduits aux
+     * noms qui contiennent l'un des types saisis ; pour un même nom, la période la plus récente d'abord.
+     *
+     * @param int[]    $entityIds
+     * @param string[] $types
+     * @return array<int, array{label: string, entity_label: string, status: string, begin_label: string}>
+     */
+    public static function getFilterCredits(array $entityIds, array $types): array
+    {
+        /** @var DBmysql $DB */
+        global $DB;
+
+        if (empty($entityIds)) {
+            return [];
+        }
+        $config = PluginCreditalertConfig::getConfig();
+        $creditTable = $config['credit_table'];
+        $fieldEntity = $config['field_entity'];
+        $fieldClient = $config['field_client'];
+        $fieldActive = (string) ($config['field_is_active'] ?? '');
+        $beginField = self::getCreditBeginField();
+
+        $where = ["$creditTable.$fieldEntity" => self::getEntityScope($entityIds)];
+        if (!empty($types)) {
+            $or = [];
+            foreach ($types as $type) {
+                $or[] = ["$creditTable.$fieldClient" => ['LIKE', '%' . self::escapeLike($type) . '%']];
+            }
+            $where[] = ['OR' => $or];
+        }
+        $select = [
+            "$creditTable.id AS id",
+            "$creditTable.$fieldClient AS name",
+            "$creditTable.$fieldEntity AS credit_entity_id",
+        ];
+        $order = ["$creditTable.$fieldClient"];
+        if ($fieldActive !== '') {
+            $select[] = "$creditTable.$fieldActive AS is_active";
+        }
+        if ($beginField !== '') {
+            $select[] = "$creditTable.$beginField AS begin_date";
+            $order[] = "$creditTable.$beginField DESC";
+        }
+
+        // Libellé d'entité relatif à l'entité choisie qui contient le crédit (comme avant, pour une seule entité)
+        $selectedParts = [];
+        foreach ($entityIds as $entityId) {
+            $selectedParts[] = self::getEntityParts((int) $entityId);
+        }
+
+        $credits = [];
+        foreach ($DB->request([
+            'SELECT' => $select,
+            'FROM'   => $creditTable,
+            'WHERE'  => $where,
+            'ORDER'  => $order,
+        ]) as $row) {
+            $creditId = (int) ($row['id'] ?? 0);
+            if ($creditId <= 0) {
+                continue;
+            }
+            $parts = self::getEntityParts((int) ($row['credit_entity_id'] ?? 0));
+            $best = [];
+            foreach ($selectedParts as $candidate) {
+                if (
+                    count($candidate) > count($best)
+                    && count($candidate) <= count($parts)
+                    && array_slice($parts, 0, count($candidate)) === $candidate
+                ) {
+                    $best = $candidate;
+                }
+            }
+            if (empty($parts)) {
+                $entityLabel = '';
+            } elseif (empty($best) || count($best) === count($parts)) {
+                $entityLabel = (string) end($parts);
+            } else {
+                $entityLabel = implode(' > ', array_slice($parts, count($best) - 1));
+            }
+
+            $beginLabel = '';
+            if ($beginField !== '' && !empty($row['begin_date'])) {
+                $ts = strtotime((string) $row['begin_date']);
+                if ($ts !== false) {
+                    $beginLabel = date('m/Y', $ts);
+                }
+            }
+            $label = trim((string) ($row['name'] ?? ''));
+            $credits[$creditId] = [
+                'label'        => $label !== '' ? $label : $entityLabel,
+                'entity_label' => $entityLabel,
+                'status'       => ($fieldActive === '' || (int) ($row['is_active'] ?? 0) === 1) ? 'active' : 'inactive',
+                'begin_label'  => $beginLabel,
+            ];
+        }
         return $credits;
     }
 }
