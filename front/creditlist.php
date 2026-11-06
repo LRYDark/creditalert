@@ -6,6 +6,22 @@ global $CFG_GLPI;
 
 Session::checkRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_READ);
 
+// Tabs: consumptions (view), credits summary (native search) and credit alerts (view)
+$view = $_GET['view'] ?? ($_POST['view'] ?? 'consumptions');
+if (!in_array($view, ['consumptions', 'credits', 'creditalert'], true)) {
+    $view = 'consumptions';
+}
+
+// Recherche par défaut (étoile du panneau des recherches sauvegardées) : à l'arrivée sur l'onglet, sans filtre.
+// Avant Html::header() : c'est une redirection.
+if (empty($_POST) && array_diff(array_keys($_GET), ['view']) === []) {
+    if ($view === 'consumptions') {
+        PluginCreditalertSavedsearch::loadDefault(PluginCreditalertConsumption::class);
+    } elseif ($view === 'creditalert') {
+        PluginCreditalertSavedsearch::loadDefault(PluginCreditalertCreditItem::class);
+    }
+}
+
 Html::header(
     PluginCreditalertCreditItem::getTypeName(2),
     $_SERVER['PHP_SELF'],
@@ -14,31 +30,31 @@ Html::header(
     'creditlist'
 );
 
-// Tabs: consumptions (view) and credits (view)
-$view = $_GET['view'] ?? ($_POST['view'] ?? 'consumptions');
+$esc = static function ($text): string {
+    return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8');
+};
+$jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
+$json = static function ($value) use ($jsonFlags): string {
+    return (string) json_encode($value, $jsonFlags);
+};
+$decode = static function ($text): string {
+    return html_entity_decode((string) $text, ENT_QUOTES, 'UTF-8');
+};
+$getString = static function (string $key): string {
+    $value = $_GET[$key] ?? '';
+    return is_scalar($value) ? trim((string) $value) : '';
+};
 $normalizeIntList = static function ($values): array {
     if (!is_array($values)) {
         $values = [$values];
     }
-    return array_values(array_filter(array_map('intval', $values)));
+    $values = array_filter($values, 'is_scalar');
+    return array_values(array_unique(array_filter(array_map('intval', $values))));
 };
-$expandEntityScope = static function (int $entityId): array {
-    static $sonsCache = [];
-
-    if ($entityId <= 0) {
-        return [];
-    }
-    if (!array_key_exists($entityId, $sonsCache)) {
-        $sons = getSonsOf('glpi_entities', $entityId);
-        if (!is_array($sons)) {
-            $sons = [$entityId];
-        }
-        $sonsCache[$entityId] = array_values(array_unique(array_filter(array_map('intval', $sons))));
-        if (empty($sonsCache[$entityId])) {
-            $sonsCache[$entityId] = [$entityId];
-        }
-    }
-    return $sonsCache[$entityId];
+// Petit « i » d'aide avec bulle GLPI
+$help = static function (string $text) use ($esc): string {
+    return " <i class='ti ti-info-circle text-muted creditalert-help' data-bs-toggle='tooltip' data-bs-placement='top'"
+        . " title='" . $esc($text) . "' aria-label='" . $esc($text) . "'></i>";
 };
 
 echo "<div class='card mb-3'><div class='card-body'>";
@@ -46,13 +62,13 @@ echo "<ul class='nav nav-tabs' id='creditalert-tabs' role='tablist'>";
 $tabs = [
     'consumptions' => __('Consommations par client', 'creditalert'),
     'credits'      => __('Synthese des credits', 'creditalert'),
-    'creditalert'  => __('Credit Alert', 'creditalert'),
+    'creditalert'  => __('Alertes de crédit', 'creditalert'),
 ];
 foreach ($tabs as $tabKey => $label) {
     $active = $view === $tabKey ? 'active' : '';
-    $url = Html::cleanInputText($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php?view=' . $tabKey);
+    $url = $esc($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php?view=' . $tabKey);
     echo "<li class='nav-item' role='presentation'>";
-    echo "<a class='nav-link $active' href='$url' data-creditalert-tab>" . $label . "</a>";
+    echo "<a class='nav-link $active' href='$url' data-creditalert-tab>" . $esc($label) . "</a>";
     echo "</li>";
 }
 echo "</ul>";
@@ -73,10 +89,34 @@ echo Html::scriptBlock("
     });
 ");
 
+// Cartes de filtre : bandeau d'en-tête (icône, titre, recherches sauvegardées de GLPI)
+echo "<style>
+.creditalert-filter-header { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    background-color: rgba(var(--tblr-azure-rgb, 66, 153, 225), .10); }
+.creditalert-filter-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+    width: 2.25rem; height: 2.25rem; border-radius: .5rem; font-size: 1.25rem;
+    color: rgb(var(--tblr-azure-rgb, 66, 153, 225)); background-color: rgba(var(--tblr-azure-rgb, 66, 153, 225), .16); }
+.creditalert-filter-title { margin: 0; font-size: 1.05rem; font-weight: 700; }
+.creditalert-filter-card .form-label { font-weight: 600; }
+.creditalert-help { cursor: help; }
+/* Texte d'invite des listes multiples (« Toutes les entités », « Rechercher un type de crédit... ») en entier */
+.creditalert-filter-card .select2-selection--multiple .select2-search--inline,
+.creditalert-filter-card .select2-selection--multiple .select2-search__field { min-width: 16em; }
+</style>";
+
+// Bulles d'aide (« i », boutons des recherches sauvegardées) des cartes de filtre
+$initTooltipsJs = <<<JS
+document.querySelectorAll('.creditalert-filter-card [data-bs-toggle="tooltip"]').forEach(function (el) {
+    if (window.bootstrap && bootstrap.Tooltip) {
+        bootstrap.Tooltip.getOrCreateInstance(el);
+    }
+});
+JS;
+
 PluginCreditalertConfig::ensureViews();
 
 if ($view === 'credits') {
-    // Search results (GLPI handles pagination with LIMIT)
+    // Search results (GLPI handles pagination, saved searches and their panel)
     Search::show(PluginCreditalertCreditSummary::class);
 } elseif ($view === 'creditalert') {
     /** @var DBmysql $DB */
@@ -95,7 +135,14 @@ if ($view === 'credits') {
     }
 
     // Filter params from GET
-    $caNames    = array_values(array_filter((array) ($_GET['ca_names'] ?? [])));
+    $caNames = array_values(array_filter(
+        array_map(static function ($value) {
+            return is_scalar($value) ? (string) $value : '';
+        }, (array) ($_GET['ca_names'] ?? [])),
+        static function ($value) {
+            return $value !== '';
+        }
+    ));
     $caStatus   = in_array($_GET['ca_status'] ?? 'all', ['all', 'active', 'inactive'], true)
                   ? (string) ($_GET['ca_status'] ?? 'all') : 'all';
     $caSearch   = isset($_GET['ca_search']);
@@ -114,16 +161,28 @@ if ($view === 'credits') {
     }
     $namesOptions = empty($uniqueNames) ? [] : array_combine($uniqueNames, $uniqueNames);
 
-    // ── Filter form ──────────────────────────────────────────────────────────
-    $caFormAction = Html::cleanInputText($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php');
-    echo "<div class='card mb-3'><div class='card-body'>";
-    echo "<form method='get' action='{$caFormAction}'>";
+    // ── Filter form (saved searches: GLPI's own panel, button and dialog) ────
+    echo "<div class='row creditalert-layout'>";
+    PluginCreditalertSavedsearch::showPanel(PluginCreditalertCreditItem::class);
+    echo "<div class='col'>";
+
+    $caFormAction = $esc($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php');
+    echo "<form method='get' action='{$caFormAction}' id='creditalert-alerts-form'>";
     echo Html::hidden('view', ['value' => 'creditalert']);
+    echo "<div class='card mb-3 creditalert-filter-card'>";
+    echo "<div class='card-header creditalert-filter-header'>";
+    echo "<span class='creditalert-filter-icon'><i class='ti ti-alert-octagon'></i></span>";
+    echo "<h3 class='creditalert-filter-title'>" . $esc(__('Alertes de crédit — filtrage par nom de crédit', 'creditalert')) . "</h3>";
+    echo "<div class='ms-auto d-flex align-items-center gap-1'>";
+    echo PluginCreditalertSavedsearch::getButtons(PluginCreditalertCreditItem::class, 'creditalert-alerts-form', 'ca_search');
+    echo "</div>";
+    echo "</div>";
+    echo "<div class='card-body'>";
 
     echo "<div class='row g-3 align-items-end'>";
 
-    echo "<div class='col-md-5'>";
-    echo "<label class='form-label mb-1'>" . __('Nom du credit', 'creditalert') . "</label>";
+    echo "<div class='col-md-7'>";
+    echo "<label class='form-label mb-1'>" . $esc(__('Nom du credit', 'creditalert')) . "</label>";
     Dropdown::showFromArray('ca_names', $namesOptions, [
         'multiple' => true,
         'values'   => $caNames,
@@ -132,8 +191,8 @@ if ($view === 'credits') {
     ]);
     echo "</div>";
 
-    echo "<div class='col-md-2'>";
-    echo "<label class='form-label mb-1'>" . __('Afficher', 'creditalert') . "</label>";
+    echo "<div class='col-md-3'>";
+    echo "<label class='form-label mb-1'>" . $esc(__('Afficher', 'creditalert')) . "</label>";
     echo "<select name='ca_status' class='form-select'>";
     foreach ([
         'all'      => __('Tous (actif et inactif)', 'creditalert'),
@@ -141,166 +200,30 @@ if ($view === 'credits') {
         'inactive' => __('Inactif seulement', 'creditalert'),
     ] as $val => $label) {
         $sel = $caStatus === $val ? ' selected' : '';
-        echo "<option value='" . htmlspecialchars($val) . "'{$sel}>" . htmlspecialchars($label) . "</option>";
+        echo "<option value='" . $esc($val) . "'{$sel}>" . $esc($label) . "</option>";
     }
     echo "</select>";
     echo "</div>";
 
     echo "<div class='col-md-2'>";
-    echo "<label class='form-label mb-1'>" . __('Depassements', 'creditalert') . "</label>";
+    echo "<label class='form-label mb-1'>" . $esc(__('Depassements', 'creditalert')) . "</label>";
     echo "<div class='form-check form-switch mt-1'>";
     $caOverChecked = $caShowOver ? ' checked' : '';
     echo "<input class='form-check-input' type='checkbox' role='switch' name='ca_show_over' id='ca_show_over_switch' value='1'{$caOverChecked} style='width:3em;height:1.5em;cursor:pointer;'>";
-    echo "<label class='form-check-label ms-2' for='ca_show_over_switch'>" . ($caShowOver ? __('Oui', 'creditalert') : __('Non', 'creditalert')) . "</label>";
-    echo "</div>";
-    echo "</div>";
-
-    echo "<div class='col-md-3'>";
-    echo "<label class='form-label mb-1'>" . __('Sauvegarder en favori', 'creditalert') . "</label>";
-    echo "<div class='input-group'>";
-    echo "<input type='text' id='ca_fav_name_input' class='form-control' placeholder='" . htmlspecialchars(__('Nom du favori...', 'creditalert')) . "'>";
-    echo "<button type='button' class='btn btn-outline-warning' onclick='creditalertSaveFav()'>";
-    echo "<i class='ti ti-star'></i> " . __('Sauvegarder', 'creditalert');
-    echo "</button>";
+    echo "<label class='form-check-label ms-2' for='ca_show_over_switch'>" . $esc($caShowOver ? __('Oui', 'creditalert') : __('Non', 'creditalert')) . "</label>";
     echo "</div>";
     echo "</div>";
 
     echo "</div>"; // row
 
-    echo "<div class='row g-3 mt-1 align-items-center'>";
-    echo "<div class='col-auto'><small class='text-muted fw-semibold'>" . __('Favoris :', 'creditalert') . "</small></div>";
-    echo "<div class='col' id='ca-fav-list'></div>";
+    echo "<div class='d-flex flex-wrap gap-2 mt-3'>";
+    echo "<button type='submit' name='ca_search' value='1' class='btn btn-primary'>"
+        . "<i class='ti ti-search me-1'></i>" . $esc(__('Afficher les résultats', 'creditalert')) . "</button>";
     echo "</div>";
 
-    echo "<div class='mt-3 text-end'>";
-    echo Html::submit(__('Rechercher', 'creditalert'), ['name' => 'ca_search', 'class' => 'btn btn-primary']);
-    echo "</div>";
-
+    echo "</div></div>"; // card-body, card
     Html::closeForm();
-    echo "</div></div>";
-
-    // ── Favorites JS (DB-backed via AJAX) ────────────────────────────────────
-    $caJsBaseUrl   = json_encode($caFormAction, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-    $caJsNames     = json_encode(array_values($caNames), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-    $caJsStatus    = json_encode($caStatus, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-    $caJsShowOver  = json_encode($caShowOver ? '1' : '0', JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-    $caJsNoName    = json_encode(__('Veuillez saisir un nom pour ce favori.', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-    $caJsNone      = addslashes(__('Aucun favori sauvegarde', 'creditalert'));
-    $caJsAjaxUrl   = json_encode(
-        Html::cleanInputText($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/ajax/favorites.php'),
-        JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT
-    );
-    $caJsCsrfToken = json_encode(Session::getNewCSRFToken(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-
-    echo Html::scriptBlock("
-(function() {
-    var ajaxUrl  = {$caJsAjaxUrl};
-    var baseUrl  = {$caJsBaseUrl};
-    var csrfToken = {$caJsCsrfToken};
-    var favCache = null;
-
-    function escH(s) {
-        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
-    }
-
-    function renderFavs(favs) {
-        favCache = favs;
-        var el = document.getElementById('ca-fav-list');
-        if (!el) return;
-        if (!favs.length) {
-            el.innerHTML = '<span class=\"text-muted small\">{$caJsNone}</span>';
-            return;
-        }
-        el.innerHTML = '';
-        favs.forEach(function(fav) {
-            var span = document.createElement('span');
-            span.className = 'badge bg-warning text-dark me-1 d-inline-flex align-items-center gap-1';
-            span.innerHTML = '<span style=\"cursor:pointer\" onclick=\"creditalertLoadFav(' + fav.id + ')\" title=\"Charger ce filtre\">' + escH(fav.name) + '</span>'
-                + ' <span style=\"cursor:pointer;font-size:1.1em;line-height:1\" onclick=\"creditalertDelFav(' + fav.id + ')\" title=\"Supprimer\">&times;</span>';
-            el.appendChild(span);
-        });
-    }
-
-    var ajaxHeaders = {
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-Glpi-Csrf-Token': csrfToken
-    };
-
-    function ajaxGet(url) {
-        return fetch(url, { credentials: 'same-origin', headers: ajaxHeaders });
-    }
-
-    function ajaxPost(url, data) {
-        return fetch(url, { method: 'POST', credentials: 'same-origin', headers: ajaxHeaders, body: data });
-    }
-
-    function loadFavs() {
-        ajaxGet(ajaxUrl + '?action=list')
-            .then(function(r) { return r.json(); })
-            .then(function(data) { renderFavs(Array.isArray(data) ? data : []); })
-            .catch(function() { renderFavs([]); });
-    }
-
-    window.creditalertSaveFav = function() {
-        var inp  = document.getElementById('ca_fav_name_input');
-        var name = inp ? inp.value.trim() : '';
-        if (!name) { alert({$caJsNoName}); return; }
-        var names    = {$caJsNames};
-        var status   = {$caJsStatus};
-        var showOver = {$caJsShowOver};
-        if (window.jQuery) {
-            var sel = jQuery('select[name=\"ca_names[]\"]');
-            if (sel.length) { names = sel.val() || []; }
-        }
-        var switchEl = document.getElementById('ca_show_over_switch');
-        if (switchEl) { showOver = switchEl.checked ? '1' : '0'; }
-        var body = new FormData();
-        body.append('action', 'save');
-        body.append('name', name);
-        body.append('ca_status', status);
-        body.append('ca_show_over', showOver);
-        names.forEach(function(n) { body.append('ca_names[]', n); });
-        ajaxPost(ajaxUrl, body)
-            .then(function(r) { return r.json(); })
-            .then(function() { loadFavs(); })
-            .catch(function() {});
-        if (inp) inp.value = '';
-    };
-
-    window.creditalertLoadFav = function(id) {
-        if (!favCache) return;
-        var fav = favCache.find(function(f) { return f.id === id; });
-        if (!fav) return;
-        var url = new URL(baseUrl, window.location.origin);
-        url.searchParams.set('view', 'creditalert');
-        url.searchParams.set('ca_status', fav.ca_status || 'all');
-        url.searchParams.set('ca_search', '1');
-        if (fav.ca_show_over !== undefined) {
-            if (fav.ca_show_over === '1' || fav.ca_show_over === 1) {
-                url.searchParams.set('ca_show_over', '1');
-            } else {
-                url.searchParams.delete('ca_show_over');
-            }
-        }
-        url.searchParams.delete('ca_names[]');
-        if (fav.ca_names && fav.ca_names.length) {
-            fav.ca_names.forEach(function(n) { url.searchParams.append('ca_names[]', n); });
-        }
-        window.location.href = url.toString();
-    };
-
-    window.creditalertDelFav = function(id) {
-        var body = new FormData();
-        body.append('action', 'delete');
-        body.append('id', id);
-        ajaxPost(ajaxUrl, body)
-            .then(function() { loadFavs(); })
-            .catch(function() {});
-    };
-
-    loadFavs();
-})();
-");
+    echo Html::scriptBlock($initTooltipsJs);
 
     // ── Results table ─────────────────────────────────────────────────────────
     if ($caSearch) {
@@ -378,22 +301,20 @@ if (!document.getElementById('ca-alert-style')) {
         echo "<div class='card'><div class='card-body p-0'><div class='table-responsive'>";
         echo "<table id='ca-results-table' class='table table-hover table-bordered mb-0'>";
         echo "<thead class='table-dark'><tr>";
-        echo "<th>" . __('Entite', 'creditalert') . "</th>";
-        echo "<th>" . __('Nom du credit', 'creditalert') . "</th>";
-        echo "<th class='text-end'>" . __('Consomme', 'creditalert') . "</th>";
-        echo "<th class='text-end'>" . __('Vendu', 'creditalert') . "</th>";
-        echo "<th>" . __('Date de fin', 'creditalert') . "</th>";
-        echo "<th>" . __('Statut', 'creditalert') . "</th>";
+        echo "<th>" . $esc(__('Entite', 'creditalert')) . "</th>";
+        echo "<th>" . $esc(__('Nom du credit', 'creditalert')) . "</th>";
+        echo "<th class='text-end'>" . $esc(__('Consomme', 'creditalert')) . "</th>";
+        echo "<th class='text-end'>" . $esc(__('Vendu', 'creditalert')) . "</th>";
+        echo "<th>" . $esc(__('Date de fin', 'creditalert')) . "</th>";
+        echo "<th>" . $esc(__('Statut', 'creditalert')) . "</th>";
         echo "</tr></thead><tbody>";
 
         if (empty($caRows)) {
-            echo "<tr><td colspan='6' class='text-center text-muted py-3'>" . __('Aucun resultat.', 'creditalert') . "</td></tr>";
+            echo "<tr><td colspan='6' class='text-center text-muted py-3'>" . $esc(__('Aucun resultat.', 'creditalert')) . "</td></tr>";
         } else {
             foreach ($caRows as $caRow) {
                 $caEntityId   = (int) ($caRow['entities_id'] ?? 0);
-                $caEntityName = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
-                    Dropdown::getDropdownName('glpi_entities', $caEntityId)
-                );
+                $caEntityName = $decode(Dropdown::getDropdownName('glpi_entities', $caEntityId));
                 $caCreditName = (string) ($caRow['client_label'] ?? '');
                 $caConsumed   = (float) ($caRow['quantity_used'] ?? 0);
                 $caSold       = (float) ($caRow['quantity_sold'] ?? 0);
@@ -435,15 +356,15 @@ if (!document.getElementById('ca-alert-style')) {
                 }
 
                 $caActiveBadge = $caIsActive
-                    ? "<span class='badge text-bg-success'>" . __('Actif', 'creditalert') . "</span>"
-                    : "<span class='badge text-bg-secondary'>" . __('Inactif', 'creditalert') . "</span>";
+                    ? "<span class='badge text-bg-success'>" . $esc(__('Actif', 'creditalert')) . "</span>"
+                    : "<span class='badge text-bg-secondary'>" . $esc(__('Inactif', 'creditalert')) . "</span>";
 
                 echo "<tr{$caRowAttr}>";
-                echo "<td>" . Html::entities_deep($caEntityName) . "</td>";
-                echo "<td>" . Html::entities_deep($caCreditName) . "</td>";
+                echo "<td>" . $esc($caEntityName) . "</td>";
+                echo "<td>" . $esc($caCreditName) . "</td>";
                 echo "<td class='text-end'>" . $fmtNum($caConsumed) . "</td>";
                 echo "<td class='text-end'>" . $fmtNum($caSold) . "</td>";
-                echo "<td{$caDateStyle}>" . htmlspecialchars($caDateLbl) . "</td>";
+                echo "<td{$caDateStyle}>" . $esc($caDateLbl) . "</td>";
                 echo "<td>{$caActiveBadge}</td>";
                 echo "</tr>";
             }
@@ -451,255 +372,276 @@ if (!document.getElementById('ca-alert-style')) {
 
         echo "</tbody></table></div></div></div>";
     }
+
+    echo "</div></div>"; // col, creditalert-layout row
 } else {
-    $config = PluginCreditalertConfig::getConfig();
     /** @var DBmysql $DB */
     global $DB;
 
-    $entityId = (int) ($_GET['entities_id'] ?? 0);
-    $dateBegin = $_GET['date_begin'] ?? '';
-    $dateEnd = $_GET['date_end'] ?? '';
-    $showOther = !empty($_GET['show_other']);
-    $filterMode = $_GET['filter_mode'] ?? 'credits';
-    if (!in_array($filterMode, ['credits', 'tickets'], true)) {
-        $filterMode = 'credits';
-    }
-    $selectedCredits = $_GET['credits_id'] ?? [];
-    $selectedCredits = $normalizeIntList($selectedCredits);
-    $ticketIdsRaw = $_GET['ticket_ids'] ?? '';
+    // ── Paramètres du filtre ─────────────────────────────────────────────────
+    // Entités facultatives (chacune avec ses sous-entités ; aucune = toutes celles de la session), types de
+    // crédit (le nom du crédit contient l'un des mots), dates appliquées aux tickets ou à la période du crédit.
+    $entityIds = PluginCreditalertConsumption::normalizeEntityIds($_GET['entities_id'] ?? []);
+    $entityScope = PluginCreditalertConsumption::getEntityScope($entityIds);
+    $singleEntityId = count($entityIds) === 1 ? $entityIds[0] : 0;
+    $types = PluginCreditalertConsumption::parseTypes($_GET['types'] ?? []);
+    $dateBegin = $getString('date_begin');
+    $dateBegin = PluginCreditalertConsumption::isValidDate($dateBegin) ? $dateBegin : '';
+    $dateEnd = $getString('date_end');
+    $dateEnd = PluginCreditalertConsumption::isValidDate($dateEnd) ? $dateEnd : '';
+    $dateScope = $getString('date_scope') === 'credits' ? 'credits' : 'tickets';
+    $filterMode = $getString('filter_mode') === 'tickets' ? 'tickets' : 'credits';
+    $selectedCredits = $normalizeIntList($_GET['credits_id'] ?? []);
+    $ticketIdsRaw = $getString('ticket_ids');
     $selectedTicketIds = [];
-    if (is_string($ticketIdsRaw) && $ticketIdsRaw !== '') {
+    if ($ticketIdsRaw !== '') {
         $selectedTicketIds = array_values(array_unique(array_filter(
             array_map('intval', preg_split('/[\s,;]+/', $ticketIdsRaw)),
             static function ($v) { return $v > 0; }
         )));
     }
+    // « Afficher autres tickets » (tickets sans crédit) : une seule entité, sans type de crédit (un ticket sans
+    // crédit n'a pas de type) et dates appliquées aux tickets (il n'a pas non plus de période de crédit).
+    $showOtherAllowed = $filterMode === 'credits' && $singleEntityId > 0 && empty($types) && $dateScope === 'tickets';
+    $showOther = $showOtherAllowed && !empty($_GET['show_other']);
 
-    $entityScope = [];
-    if ($entityId > 0) {
-        $entityScope = $expandEntityScope($entityId);
-    }
-
-    $creditTable = $config['credit_table'];
-    $fieldEntity = $config['field_entity'];
-    $fieldClient = $config['field_client'];
-    $fieldActive = $config['field_is_active'];
-    $creditListTable = $creditTable;
-    $creditLabelField = $fieldClient;
-    $creditEntityField = $fieldEntity;
-    $selectedEntityLabel = '';
-    $selectedEntityParts = [];
-    if ($entityId > 0) {
-        $selectedEntityLabel = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
-            Dropdown::getDropdownName('glpi_entities', $entityId)
-        );
-        $selectedEntityParts = array_values(array_filter(
-            array_map('trim', explode('>', $selectedEntityLabel)),
-            static function ($part) {
-                return $part !== '';
-            }
-        ));
-    }
-    $getRelativeEntityLabel = static function (string $fullLabel, array $selectedParts): string {
-        $parts = array_values(array_filter(
-            array_map('trim', explode('>', $fullLabel)),
-            static function ($part) {
-                return $part !== '';
-            }
-        ));
-        if (empty($parts)) {
-            return $fullLabel;
-        }
-        if (!empty($selectedParts) && count($parts) >= count($selectedParts)) {
-            $match = true;
-            foreach ($selectedParts as $index => $part) {
-                if (!isset($parts[$index]) || $parts[$index] !== $part) {
-                    $match = false;
-                    break;
-                }
-            }
-            if ($match) {
-                if (count($parts) === count($selectedParts)) {
-                    return (string) end($parts);
-                }
-                $relative = array_slice($parts, count($selectedParts) - 1);
-                return implode(' > ', $relative);
-            }
-        }
-        return (string) end($parts);
-    };
+    // Crédits proposés : ceux des entités choisies, réduits aux types saisis ; un crédit choisi qui n'en fait
+    // plus partie (entité ou type retiré) est écarté.
     $creditsOptions = [];
     $creditsStatus = [];
-    $creditsEntityDepth = [];
     $creditsEntityLabels = [];
     $creditsBeginLabels = [];
-    $entityLabels = [];
-    if ($entityId > 0) {
-        $beginField = '';
-        foreach (['begin_date', 'date_begin', 'start_date'] as $candidate) {
-            if ($DB->fieldExists($creditListTable, $candidate)) {
-                $beginField = $candidate;
-                break;
-            }
+    foreach (PluginCreditalertConsumption::getFilterCredits($entityIds, $types) as $creditId => $credit) {
+        $creditsOptions[$creditId] = $credit['label'];
+        $creditsStatus[$creditId] = $credit['status'];
+        if ($credit['entity_label'] !== '') {
+            $creditsEntityLabels[$creditId] = $credit['entity_label'];
         }
-        $creditEntityScope = $entityScope ?: [$entityId];
-        $query = [
-            'SELECT' => [
-                "$creditListTable.id AS id",
-                "$creditListTable.$creditLabelField AS name",
-                "$creditListTable.$creditEntityField AS credit_entity_id",
-            ],
-            'FROM'   => $creditListTable,
-            'WHERE'  => [
-                "$creditListTable.$creditEntityField" => $creditEntityScope,
-            ],
-            'ORDER'  => [
-                "$creditListTable.$creditLabelField",
-            ],
-        ];
-        if (!empty($fieldActive)) {
-            $query['SELECT'][] = "$creditListTable.$fieldActive AS is_active";
+        if ($credit['begin_label'] !== '') {
+            $creditsBeginLabels[$creditId] = $credit['begin_label'];
         }
-        if ($beginField !== '') {
-            $query['SELECT'][] = "$creditListTable.$beginField AS begin_date";
-        }
-        foreach ($DB->request($query) as $row) {
-            $creditId = (int) ($row['id'] ?? 0);
-            if ($creditId <= 0) {
-                continue;
-            }
-            $creditName = (string) ($row['name'] ?? '');
-            $creditEntityId = (int) ($row['credit_entity_id'] ?? 0);
-            $fullEntityLabel = '';
-            if ($creditEntityId > 0) {
-                if (!array_key_exists($creditEntityId, $entityLabels)) {
-                    $entityLabels[$creditEntityId] = \Glpi\Toolbox\Sanitizer::decodeHtmlSpecialChars(
-                        Dropdown::getDropdownName('glpi_entities', $creditEntityId)
-                    );
-                }
-                $fullEntityLabel = (string) $entityLabels[$creditEntityId];
-            }
-            $entityLabel = $fullEntityLabel !== ''
-                ? $getRelativeEntityLabel($fullEntityLabel, $selectedEntityParts)
-                : '';
-            $optionLabel = trim($creditName);
-            if ($optionLabel === '') {
-                $optionLabel = $entityLabel;
-            }
-            $depth = $fullEntityLabel === '' ? PHP_INT_MAX : substr_count($fullEntityLabel, '>');
-            if (!isset($creditsOptions[$creditId]) || $depth < ($creditsEntityDepth[$creditId] ?? PHP_INT_MAX)) {
-                $creditsOptions[$creditId] = $optionLabel;
-                $creditsEntityDepth[$creditId] = $depth;
-                $creditsEntityLabels[$creditId] = $entityLabel;
-            }
-            if (!empty($fieldActive)) {
-                if (!isset($creditsStatus[$creditId])) {
-                    $creditsStatus[$creditId] = ((int) ($row['is_active'] ?? 0)) === 1 ? 'active' : 'inactive';
-                }
-            } else {
-                if (!isset($creditsStatus[$creditId])) {
-                    $creditsStatus[$creditId] = 'active';
-                }
-            }
-            if ($beginField !== '' && !isset($creditsBeginLabels[$creditId]) && !empty($row['begin_date'])) {
-                $ts = strtotime((string) $row['begin_date']);
-                if ($ts !== false) {
-                    $creditsBeginLabels[$creditId] = date('m/Y', $ts);
-                }
-            }
+    }
+    $selectedCredits = array_values(array_filter($selectedCredits, static function ($id) use ($creditsOptions) {
+        return isset($creditsOptions[$id]);
+    }));
+
+    // Suggestions du champ « Types de crédit » : noms des crédits visibles ; les mots saisis s'y ajoutent
+    $typeOptions = [];
+    foreach ($types as $type) {
+        $typeOptions[$type] = $type;
+    }
+    foreach (PluginCreditalertConsumption::getCreditNames() as $creditName) {
+        if (!isset($typeOptions[$creditName])) {
+            $typeOptions[$creditName] = $creditName;
         }
     }
 
-    echo "<form method='get' action='" . $CFG_GLPI['root_doc'] . "/plugins/creditalert/front/creditlist.php' class='mb-3'>";
+    // ── Fenêtre d'export (formulaire « Exporter les lignes » et « Exporter toutes les pages ») ──────────────
+    $dlgRand = mt_rand();
+    $dlgSelectHtml = Dropdown::showYesNo('include_private_tasks', 0, -1, [
+        'rand'    => $dlgRand,
+        'display' => false,
+    ]);
+    $dlgSelectId = Html::cleanId('dropdown_include_private_tasks' . $dlgRand);
+    $dlgFormatHtml = Dropdown::showFromArray('creditalert_export_format', [
+        'xlsx' => __('Excel (XLSX)', 'creditalert'),
+        'csv'  => __('CSV', 'creditalert'),
+    ], [
+        'value'   => 'xlsx',
+        'rand'    => $dlgRand,
+        'display' => false,
+    ]);
+    $dlgFormatId = Html::cleanId('dropdown_creditalert_export_format' . $dlgRand);
+    $dlgTitleJson       = $json(__('Exporter les lignes', 'creditalert'));
+    $dlgLabelJson       = $json(__('Inclure les taches privees', 'creditalert'));
+    $dlgFormatLabelJson = $json(__('Format d\'export', 'creditalert'));
+    $dlgSelectHtmlJson  = $json($dlgSelectHtml);
+    $dlgFormatHtmlJson  = $json($dlgFormatHtml);
+    $dlgSelectIdJson    = $json($dlgSelectId);
+    $dlgFormatIdJson    = $json($dlgFormatId);
+    $dlgCancelJson      = $json(__('Annuler', 'creditalert'));
+    $dlgExportJson      = $json(__('Exporter', 'creditalert'));
+    $js = <<<JS
+window.creditalertExportDialog = function (onExport) {
+  glpi_html_dialog({
+    title: {$dlgTitleJson},
+    body: "<div class='d-flex align-items-center justify-content-center gap-2 mb-3'>"
+        + "<label class='form-label mb-0' for='" + {$dlgSelectIdJson} + "'>" + {$dlgLabelJson} + "</label>"
+        + {$dlgSelectHtmlJson}
+        + "</div>"
+        + "<div class='d-flex align-items-center justify-content-center gap-2'>"
+        + "<label class='form-label mb-0' for='" + {$dlgFormatIdJson} + "'>" + {$dlgFormatLabelJson} + "</label>"
+        + {$dlgFormatHtmlJson}
+        + "</div>",
+    buttons: [
+      {
+        label: {$dlgCancelJson},
+        class: 'btn-secondary'
+      },
+      {
+        label: "<i class='ti ti-download'></i> " + {$dlgExportJson},
+        class: 'btn-primary',
+        click: function () {
+          var sel = document.getElementById({$dlgSelectIdJson});
+          var fmt = document.getElementById({$dlgFormatIdJson});
+          onExport(!!(sel && sel.value === '1'), (fmt && fmt.value === 'csv') ? 'csv' : 'xlsx');
+        }
+      }
+    ]
+  });
+};
+JS;
+    echo Html::scriptBlock($js);
+
+    // ── Formulaire de filtre ─────────────────────────────────────────────────
+    echo "<div class='row creditalert-layout'>";
+    PluginCreditalertSavedsearch::showPanel(PluginCreditalertConsumption::class);
+    echo "<div class='col'>";
+
+    $formAction = $esc($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php');
+    echo "<form method='get' action='{$formAction}' id='creditalert-consumptions-form' class='mb-3'>";
     echo Html::hidden('view', ['value' => 'consumptions']);
-    echo "<div class='card mb-3'>";
-    echo "<div class='card-header d-flex justify-content-between align-items-center' id='creditalert-filter-toggle'"
-        . " style='cursor:pointer;' data-bs-toggle='collapse' data-bs-target='#creditalert-filter-body'"
-        . " aria-expanded='true' aria-controls='creditalert-filter-body'>";
-    echo "<span class='fw-semibold'><i class='ti ti-filter'></i> " . __('Filtres', 'creditalert') . "</span>";
-    echo "<i class='ti ti-chevron-up' id='creditalert-filter-chevron'></i>";
+    echo "<div class='card mb-3 creditalert-filter-card'>";
+    echo "<div class='card-header creditalert-filter-header'>";
+    echo "<span class='creditalert-filter-icon'><i class='ti ti-search'></i></span>";
+    echo "<h3 class='creditalert-filter-title'>" . $esc(__('Consommations — filtrage par type de crédit et par client', 'creditalert')) . "</h3>";
+    echo "<div class='ms-auto d-flex align-items-center gap-1'>";
+    echo PluginCreditalertSavedsearch::getButtons(PluginCreditalertConsumption::class, 'creditalert-consumptions-form', 'search');
+    echo "<button type='button' class='btn btn-sm btn-icon btn-ghost-secondary' id='creditalert-filter-toggle'"
+        . " data-bs-toggle='collapse' data-bs-target='#creditalert-filter-body' aria-expanded='true'"
+        . " aria-controls='creditalert-filter-body' aria-label='" . $esc(__('Afficher ou masquer les filtres', 'creditalert')) . "'>"
+        . "<i class='ti ti-chevron-up' id='creditalert-filter-chevron'></i></button>";
+    echo "</div>";
     echo "</div>";
     echo "<div class='collapse show' id='creditalert-filter-body'>";
     echo "<div class='card-body'>";
-    echo "<div class='row g-3 align-items-end'>";
 
-    echo "<div class='col-md-4'>";
-    echo "<label class='form-label mb-1'>" . __('Entite', 'creditalert') . "</label>";
-    Dropdown::show('Entity', [
-        'name'      => 'entities_id',
-        'value'     => $entityId,
-        'on_change' => 'this.form.submit();',
+    // Types de crédit
+    $typesRand = mt_rand();
+    $typesId = Html::cleanId('dropdown_types' . $typesRand);
+    echo "<div class='row g-3'>";
+    echo "<div class='col-12 col-xxl-8'>";
+    echo "<label class='form-label mb-1' for='{$typesId}'>" . $esc(__('Types de crédit', 'creditalert'))
+        . $help(__('Le nom du crédit contient l\'un de ces mots (majuscules et accents ignorés). Exemple : PREVENTIVE ou ANTIVIRUS. Tapez un mot puis Entrée, ou choisissez un nom de crédit.', 'creditalert'))
+        . "</label>";
+    // Liste native de GLPI (boutons « Tout » / « Aucun », recherche de GLPI) ; mise en place différée pour y
+    // ajouter la saisie de mots libres (voir le script du formulaire)
+    Dropdown::showFromArray('types', $typeOptions, [
+        'multiple' => true,
+        'values'   => $types,
+        'width'    => '100%',
+        'rand'     => $typesRand,
+        'init'     => false,
     ]);
     echo "</div>";
+    echo "</div>";
 
-    echo "<div class='col-md-4'>";
-    echo "<label class='form-label mb-1'>" . __('Date de debut', 'creditalert') . "</label>";
+    // Entité (optionnel) + dates
+    $entityRand = mt_rand();
+    echo "<div class='row g-3 mt-0'>";
+    echo "<div class='col-12 col-lg-6'>";
+    echo "<label class='form-label mb-1'>" . $esc(__('Entité (optionnel)', 'creditalert'))
+        . $help(__('Chaque entité choisie compte avec ses sous-entités. Vide : toutes les entités visibles dans GLPI avec votre profil.', 'creditalert'))
+        . "</label>";
+    // Liste native de GLPI à choix multiples (boutons « Tout » / « Aucun ») : entités actives de la session, nom
+    // complet ; l'entité racine n'y figure pas (vide = toutes les entités)
+    $entityOptions = [];
+    $activeEntityIds = $_SESSION['glpiactiveentities'] ?? [];
+    $activeEntityIds = array_values(array_filter(array_map('intval', is_array($activeEntityIds) ? $activeEntityIds : [$activeEntityIds])));
+    if (!empty($activeEntityIds)) {
+        foreach ($DB->request([
+            'SELECT' => ['id', 'completename'],
+            'FROM'   => Entity::getTable(),
+            'WHERE'  => ['id' => $activeEntityIds],
+            'ORDER'  => ['completename'],
+        ]) as $entityRow) {
+            $entityOptions[(int) $entityRow['id']] = $decode($entityRow['completename']);
+        }
+    }
+    Dropdown::showFromArray('entities_id', $entityOptions, [
+        'multiple' => true,
+        'values'   => $entityIds,
+        'width'    => '100%',
+        'rand'     => $entityRand,
+        'init'     => false,
+    ]);
+    echo "<div class='alert alert-info d-flex align-items-center gap-2 py-2 px-3 mt-2 mb-0'>";
+    echo "<i class='ti ti-info-circle'></i><span>"
+        . $esc(__('Laissez « Toutes les entités » pour récupérer les lignes sur l\'ensemble des clients.', 'creditalert'))
+        . "</span></div>";
+    echo "</div>";
+
+    echo "<div class='col-12 col-lg-6'>";
+    echo "<div class='row g-3'>";
+    echo "<div class='col-sm-6'>";
+    echo "<label class='form-label mb-1'>" . $esc(__('Date de début', 'creditalert')) . "</label>";
     Html::showDateField('date_begin', [
         'value'       => $dateBegin,
-        'placeholder' => __('Date de debut', 'creditalert'),
+        'placeholder' => __('Date de début', 'creditalert'),
         'display'     => true,
     ]);
     echo "</div>";
-
-    echo "<div class='col-md-4'>";
-    echo "<label class='form-label mb-1'>" . __('Date de fin', 'creditalert') . "</label>";
+    echo "<div class='col-sm-6'>";
+    echo "<label class='form-label mb-1'>" . $esc(__('Date de fin', 'creditalert')) . "</label>";
     Html::showDateField('date_end', [
         'value'       => $dateEnd,
         'placeholder' => __('Date de fin', 'creditalert'),
         'display'     => true,
     ]);
     echo "</div>";
-
     echo "</div>";
+    // Une seule ligne : « Dates appliquées aux : (•) tickets ⓘ  ( ) crédits ⓘ »
+    echo "<div class='d-flex flex-wrap align-items-center gap-3 mt-2'>";
+    echo "<span class='fw-semibold'>" . $esc(__('Dates appliquées aux :', 'creditalert')) . "</span>";
+    foreach ([
+        'tickets' => [__('tickets', 'creditalert'), __('Tickets ouverts ou résolus entre ces dates.', 'creditalert')],
+        'credits' => [__('crédits', 'creditalert'), __('Crédits dont la période recoupe ces dates (sans date de début ou de fin : période ouverte de ce côté).', 'creditalert')],
+    ] as $scopeValue => [$scopeLabel, $scopeHelp]) {
+        $checked = $dateScope === $scopeValue ? ' checked' : '';
+        echo "<span class='d-inline-flex align-items-center gap-1 text-nowrap'>";
+        echo "<input class='form-check-input m-0' type='radio' name='date_scope' id='creditalert_date_scope_{$scopeValue}'"
+            . " value='{$scopeValue}'{$checked}>";
+        echo "<label class='mb-0' for='creditalert_date_scope_{$scopeValue}'>" . $esc($scopeLabel) . "</label>"
+            . $help($scopeHelp);
+        echo "</span>";
+    }
+    echo "</div>";
+    echo "</div>";
+    echo "</div>"; // row entité + dates
 
-    // Filter mode selector
-    echo "<div class='row g-3 mt-1'>";
+    // Mode de filtre
+    echo "<div class='row g-3 mt-0'>";
     echo "<div class='col-12'>";
-    echo "<label class='form-label mb-1'>" . __('Mode de filtre', 'creditalert') . "</label>";
+    echo "<label class='form-label mb-1'>" . $esc(__('Mode de filtre', 'creditalert')) . "</label>";
     echo "<div class='d-flex gap-3'>";
-    $checkedCredits = $filterMode === 'credits' ? ' checked' : '';
-    $checkedTickets = $filterMode === 'tickets' ? ' checked' : '';
-    echo "<div class='form-check'>";
-    echo "<input class='form-check-input' type='radio' name='filter_mode' id='filter_mode_credits' value='credits'{$checkedCredits} onchange=\"document.getElementById('creditalert_filter_credits').style.display='';document.getElementById('creditalert_filter_tickets').style.display='none';\">";
-    echo "<label class='form-check-label' for='filter_mode_credits'>" . __('Par credits', 'creditalert') . "</label>";
-    echo "</div>";
-    echo "<div class='form-check'>";
-    echo "<input class='form-check-input' type='radio' name='filter_mode' id='filter_mode_tickets' value='tickets'{$checkedTickets} onchange=\"document.getElementById('creditalert_filter_tickets').style.display='';document.getElementById('creditalert_filter_credits').style.display='none';\">";
-    echo "<label class='form-check-label' for='filter_mode_tickets'>" . __('Par tickets', 'creditalert') . "</label>";
-    echo "</div>";
+    foreach (['credits' => __('Par crédits', 'creditalert'), 'tickets' => __('Par tickets', 'creditalert')] as $modeValue => $modeLabel) {
+        $checked = $filterMode === $modeValue ? ' checked' : '';
+        echo "<div class='form-check mb-0'>";
+        echo "<input class='form-check-input' type='radio' name='filter_mode' id='filter_mode_{$modeValue}' value='{$modeValue}'{$checked}>";
+        echo "<label class='form-check-label' for='filter_mode_{$modeValue}'>" . $esc($modeLabel) . "</label>";
+        echo "</div>";
+    }
     echo "</div>";
     echo "</div>";
     echo "</div>";
 
-    // Credits filter (shown when mode is credits)
-    $displayCredits = $filterMode === 'credits' ? '' : 'display:none;';
-    echo "<div class='row g-3' id='creditalert_filter_credits' style='{$displayCredits}'>";
-    echo "<div class='col-12 creditalert-credits-row'>";
-    echo "<label class='form-label mb-1'>" . __('Credits', 'creditalert') . "</label>";
+    // Par crédits : crédits précis des entités choisies, autres tickets
     $creditSelectRand = mt_rand();
-    static $creditFilterScriptLoaded = false;
-    if (!$creditFilterScriptLoaded) {
-        $creditFilterScriptLoaded = true;
-        $activeLabel = json_encode(__('Actif', 'creditalert'));
-        $inactiveLabel = json_encode(__('Inactif', 'creditalert'));
-        $beginLabel = json_encode(__('Date de debut', 'creditalert'));
-        $js = <<<JS
+    $displayCredits = $filterMode === 'credits' ? '' : 'display:none;';
+    echo "<div class='row g-3 mt-0' id='creditalert_filter_credits' style='{$displayCredits}'>";
+    echo "<div class='col-12 creditalert-credits-row' id='creditalert_credits_field'" . (empty($entityIds) ? " style='display:none;'" : '') . ">";
+    echo "<label class='form-label mb-1'>" . $esc(__('Crédits', 'creditalert'))
+        . $help(__('Facultatif quand un type de crédit est saisi : tous les crédits correspondants sont pris.', 'creditalert'))
+        . "</label>";
+    $activeLabel = $json(__('Actif', 'creditalert'));
+    $inactiveLabel = $json(__('Inactif', 'creditalert'));
+    $beginLabel = $json(__('Date de debut', 'creditalert'));
+    $js = <<<JS
 window.creditalertCreditFilterResult = function(item) {
     if (!item.id) {
         return item.text;
     }
-    var status = '';
-    if (item.element && item.element.dataset && item.element.dataset.status) {
-        status = item.element.dataset.status;
-    }
-    var entityLabel = '';
-    if (item.element && item.element.dataset && item.element.dataset.entityLabel) {
-        entityLabel = item.element.dataset.entityLabel;
-    }
-    var beginValue = '';
-    if (item.element && item.element.dataset && item.element.dataset.beginLabel) {
-        beginValue = item.element.dataset.beginLabel;
-    }
+    var data = (item.element && item.element.dataset) ? item.element.dataset : {};
     var container = $('<span></span>');
     container.text(item.text);
     var addBadge = function(text, style) {
@@ -710,17 +652,17 @@ window.creditalertCreditFilterResult = function(item) {
         }
         badge.text(text);
         container.append(' ').append(badge);
-        };
-    if (entityLabel) {
-        addBadge(entityLabel, 'background-color:#ffffff;color:#0d6efd;border:1px solid #0d6efd;');
+    };
+    if (data.entityLabel) {
+        addBadge(data.entityLabel, 'background-color:#ffffff;color:#0d6efd;border:1px solid #0d6efd;');
     }
-    if (status === 'inactive') {
+    if (data.status === 'inactive') {
         addBadge({$inactiveLabel}, 'background-color:#ffffff;color:#6c757d;border:1px solid #6c757d;');
-    } else if (status === 'active') {
+    } else if (data.status === 'active') {
         addBadge({$activeLabel}, 'background-color:#ffffff;color:#1a7f37;border:1px solid #1a7f37;');
     }
-    if (beginValue) {
-        addBadge({$beginLabel} + ' : ' + beginValue, 'background-color:#ffffff;color:#343a40;border:1px solid #343a40;');
+    if (data.beginLabel) {
+        addBadge({$beginLabel} + ' : ' + data.beginLabel, 'background-color:#ffffff;color:#343a40;border:1px solid #343a40;');
     }
     return container;
 };
@@ -729,87 +671,271 @@ window.creditalertCreditFilterSelection = function(item) {
     return creditalertCreditFilterResult(item);
 };
 JS;
-        echo Html::scriptBlock($js);
-    }
+    echo Html::scriptBlock($js);
     Dropdown::showFromArray('credits_id', $creditsOptions, [
-        'multiple' => true,
-        'values'   => $selectedCredits,
-        'disabled' => empty($creditsOptions),
-        'width'    => '100%',
-        'rand'     => $creditSelectRand,
-        'templateResult' => 'creditalertCreditFilterResult',
+        'multiple'          => true,
+        'values'            => $selectedCredits,
+        'width'             => '100%',
+        'rand'              => $creditSelectRand,
+        'templateResult'    => 'creditalertCreditFilterResult',
         'templateSelection' => 'creditalertCreditFilterSelection',
     ]);
-    if (!empty($creditsStatus) || !empty($creditsEntityLabels) || !empty($creditsBeginLabels)) {
-        $selectId = 'dropdown_credits_id' . $creditSelectRand;
-        $statusJson = json_encode((object) $creditsStatus, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-        $entityJson = json_encode((object) $creditsEntityLabels, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-        $beginJson = json_encode((object) $creditsBeginLabels, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-        $js = <<<JS
-(function() {
-    var select = document.getElementById('{$selectId}');
-    if (!select) {
+    echo "<small class='text-muted' id='creditalert_credits_empty'" . (!empty($creditsOptions) ? " style='display:none;'" : '') . ">"
+        . $esc(__('Aucun crédit pour ces entités et ces types.', 'creditalert')) . "</small>";
+    echo "</div>";
+    echo "<div class='col-12'>";
+    echo "<div class='form-check mb-0'>";
+    echo "<input class='form-check-input' type='checkbox' name='show_other' id='creditalert_show_other' value='1'"
+        . ($showOther ? ' checked' : '') . ($showOtherAllowed || $filterMode !== 'credits' ? '' : ' disabled') . ">";
+    echo "<label class='form-check-label' for='creditalert_show_other'>" . $esc(__('Afficher autres tickets', 'creditalert')) . "</label>";
+    echo " <small class='text-muted' id='creditalert_show_other_help'" . ($showOtherAllowed ? " style='display:none;'" : '') . ">"
+        . $esc(__('(avec une seule entité, sans type de crédit, dates appliquées aux tickets)', 'creditalert')) . "</small>";
+    echo "</div>";
+    echo "</div>";
+    echo "</div>"; // creditalert_filter_credits
+
+    // Par tickets : liste d'IDs
+    $displayTickets = $filterMode === 'tickets' ? '' : 'display:none;';
+    echo "<div class='row g-3 mt-0' id='creditalert_filter_tickets' style='{$displayTickets}'>";
+    echo "<div class='col-12'>";
+    echo "<label class='form-label mb-1'>" . $esc(__('Liste des IDs de tickets (un par ligne)', 'creditalert')) . "</label>";
+    echo "<textarea name='ticket_ids' class='form-control' rows='6' placeholder='59250&#10;59268&#10;59267&#10;...'>" . $esc($ticketIdsRaw) . "</textarea>";
+    echo "<small class='text-muted'>" . $esc(__('Saisissez les IDs de tickets separes par des retours a la ligne, virgules ou espaces.', 'creditalert')) . "</small>";
+    echo "</div>";
+    echo "</div>";
+
+    // Boutons
+    echo "<div class='d-flex flex-wrap gap-2 mt-4'>";
+    echo "<button type='submit' name='search' value='1' class='btn btn-primary'>"
+        . "<i class='ti ti-search me-1'></i>" . $esc(__('Afficher les résultats', 'creditalert')) . "</button>";
+    echo "<button type='button' class='btn btn-outline-secondary' id='creditalert-export-lines'>"
+        . "<i class='ti ti-download me-1'></i>" . $esc(__('Exporter les lignes', 'creditalert')) . "</button>";
+    echo "</div>";
+
+    echo "</div></div></div>"; // card-body, collapse, card
+    Html::closeForm();
+
+    // Comportement du formulaire : types en mots libres, crédits rechargés sans recharger la page, champs
+    // affichés selon le mode, export direct.
+    $selectIds = $json([
+        'types'   => $typesId,
+        'entity'  => Html::cleanId('dropdown_entities_id' . $entityRand),
+        'credits' => Html::cleanId('dropdown_credits_id' . $creditSelectRand),
+    ]);
+    $creditsDataJson = $json([
+        'status' => (object) $creditsStatus,
+        'entity' => (object) $creditsEntityLabels,
+        'begin'  => (object) $creditsBeginLabels,
+    ]);
+    $ajaxUrlJson = $json($CFG_GLPI['root_doc'] . '/plugins/creditalert/front/ajax/filtercredits.php');
+    $textsJson = $json([
+        'typesPlaceholder' => __('Rechercher un type de crédit...', 'creditalert'),
+        'entityPlaceholder' => __('Toutes les entités', 'creditalert'),
+        'contains'         => __('Contient « %s »', 'creditalert'),
+    ]);
+    // Au chargement complet : après la mise en place des listes de GLPI (entités, crédits), faite elle aussi
+    // à ce moment-là et enregistrée avant ce script.
+    $js = <<<JS
+$(function () {
+    var form = document.getElementById('creditalert-consumptions-form');
+    if (!form) {
         return;
     }
-    var statuses = {$statusJson};
-    var entities = {$entityJson};
-    var beginLabels = {$beginJson};
-    Object.keys(statuses).forEach(function(id) {
-        var opt = select.querySelector('option[value="' + id + '"]');
-        if (opt) {
-            opt.dataset.status = statuses[id];
+    var ids = {$selectIds};
+    var texts = {$textsJson};
+    var ajaxUrl = {$ajaxUrlJson};
+    var typesSelect = document.getElementById(ids.types);
+    var entitySelect = document.getElementById(ids.entity);
+    var creditsSelect = document.getElementById(ids.credits);
+    var creditsBlock = document.getElementById('creditalert_filter_credits');
+    var creditsField = document.getElementById('creditalert_credits_field');
+    var creditsEmpty = document.getElementById('creditalert_credits_empty');
+    var ticketsBlock = document.getElementById('creditalert_filter_tickets');
+    var showOther = document.getElementById('creditalert_show_other');
+    var showOtherHelp = document.getElementById('creditalert_show_other_help');
+
+    // Crédits affichés au chargement : badges entité / actif / date de début
+    var initial = {$creditsDataJson};
+    if (creditsSelect) {
+        Array.prototype.forEach.call(creditsSelect.options, function (opt) {
+            if (initial.status[opt.value]) { opt.dataset.status = initial.status[opt.value]; }
+            if (initial.entity[opt.value]) { opt.dataset.entityLabel = initial.entity[opt.value]; }
+            if (initial.begin[opt.value]) { opt.dataset.beginLabel = initial.begin[opt.value]; }
+        });
+        if ($(creditsSelect).data('select2')) {
+            $(creditsSelect).trigger('change');
         }
-    });
-    Object.keys(entities).forEach(function(id) {
-        var opt = select.querySelector('option[value="' + id + '"]');
-        if (opt) {
-            opt.dataset.entityLabel = entities[id];
-        }
-    });
-    Object.keys(beginLabels).forEach(function(id) {
-        var opt = select.querySelector('option[value="' + id + '"]');
-        if (opt) {
-            opt.dataset.beginLabel = beginLabels[id];
-        }
-    });
-    if (window.jQuery && $(select).data('select2')) {
-        $(select).trigger('change');
     }
-})();
+
+    // Types de crédit : la liste native de GLPI (setupAdaptDropdown, mêmes réglages que partout), à laquelle
+    // on ajoute seulement les mots libres (« contient ») : select2 ne les accepte qu'à sa création.
+    // Entités : liste native de GLPI, avec son texte d'invite
+    var entityConfig = window.select2_configs ? window.select2_configs[ids.entity] : null;
+    if (entityConfig && typeof window.setupAdaptDropdown === 'function') {
+        entityConfig.placeholder = texts.entityPlaceholder;
+        window.setupAdaptDropdown(entityConfig);
+    }
+
+    var typesConfig = window.select2_configs ? window.select2_configs[ids.types] : null;
+    if (typesSelect && typesConfig && typeof window.setupAdaptDropdown === 'function' && $.fn.select2) {
+        var originalSelect2 = $.fn.select2;
+        var withTags = function (options) {
+            if (this.is(typesSelect) && options && typeof options === 'object') {
+                var glpiTemplate = options.templateResult;
+                options = $.extend({}, options, {
+                    tags: true,
+                    tokenSeparators: [','],
+                    placeholder: texts.typesPlaceholder,
+                    createTag: function (params) {
+                        var term = $.trim(params.term);
+                        return term === '' ? null : {id: term, text: term, newTag: true};
+                    },
+                    templateResult: function (data) {
+                        if (data.newTag) {
+                            return $('<span></span>').text(texts.contains.replace('%s', data.text));
+                        }
+                        return typeof glpiTemplate === 'function' ? glpiTemplate(data) : data.text;
+                    }
+                });
+            }
+            return originalSelect2.apply(this, [options].concat(Array.prototype.slice.call(arguments, 1)));
+        };
+        $.extend(withTags, originalSelect2);
+        $.fn.select2 = withTags;
+        try {
+            window.setupAdaptDropdown(typesConfig);
+        } finally {
+            $.fn.select2 = originalSelect2;
+        }
+    } else if (typesConfig && typeof window.setupAdaptDropdown === 'function') {
+        window.setupAdaptDropdown(typesConfig);
+    }
+
+    var values = function (select) {
+        if (!select) {
+            return [];
+        }
+        return ($(select).val() || []).filter(function (value) {
+            return value !== '' && value !== '0';
+        });
+    };
+    var checkedValue = function (name) {
+        var input = form.querySelector('input[name="' + name + '"]:checked');
+        return input ? input.value : '';
+    };
+
+    var updateFields = function () {
+        var mode = checkedValue('filter_mode') || 'credits';
+        var entities = values(entitySelect);
+        var types = values(typesSelect);
+        creditsBlock.style.display = mode === 'credits' ? '' : 'none';
+        ticketsBlock.style.display = mode === 'tickets' ? '' : 'none';
+        if (creditsField) {
+            creditsField.style.display = entities.length ? '' : 'none';
+        }
+        var allowed = mode === 'credits' && entities.length === 1 && types.length === 0
+            && checkedValue('date_scope') !== 'credits';
+        if (showOther) {
+            showOther.disabled = !allowed;
+            if (!allowed) {
+                showOther.checked = false;
+            }
+        }
+        if (showOtherHelp) {
+            showOtherHelp.style.display = allowed ? 'none' : '';
+        }
+    };
+
+    var requestNumber = 0;
+    var refreshCredits = function () {
+        updateFields();
+        if (!creditsSelect) {
+            return;
+        }
+        var entities = values(entitySelect);
+        if (!entities.length) {
+            return;
+        }
+        var url = new URL(ajaxUrl, window.location.href);
+        entities.forEach(function (id) { url.searchParams.append('entities_id[]', id); });
+        values(typesSelect).forEach(function (type) { url.searchParams.append('types[]', type); });
+        var current = ++requestNumber;
+        fetch(url.toString(), {credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}})
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                return response.json();
+            })
+            .then(function (list) {
+                if (current !== requestNumber || !Array.isArray(list)) {
+                    return;
+                }
+                var selected = ($(creditsSelect).val() || []).map(String);
+                $(creditsSelect).empty();
+                list.forEach(function (credit) {
+                    var id = String(credit.id);
+                    var opt = new Option(credit.text, id, false, selected.indexOf(id) !== -1);
+                    opt.dataset.status = credit.status || '';
+                    if (credit.entity_label) { opt.dataset.entityLabel = credit.entity_label; }
+                    if (credit.begin_label) { opt.dataset.beginLabel = credit.begin_label; }
+                    creditsSelect.appendChild(opt);
+                });
+                $(creditsSelect).trigger('change');
+                if (creditsEmpty) {
+                    creditsEmpty.style.display = list.length ? 'none' : '';
+                }
+            })
+            .catch(function () {});
+    };
+    var timer = null;
+    var scheduleRefresh = function () {
+        clearTimeout(timer);
+        timer = setTimeout(refreshCredits, 250);
+    };
+
+    if (entitySelect) {
+        $(entitySelect).on('change', scheduleRefresh);
+    }
+    if (typesSelect) {
+        $(typesSelect).on('change', scheduleRefresh);
+    }
+    form.querySelectorAll('input[name="filter_mode"], input[name="date_scope"]').forEach(function (input) {
+        input.addEventListener('change', updateFields);
+    });
+    updateFields();
+
+    // « Exporter les lignes » : même fenêtre que « Exporter toutes les pages », puis recherche + export
+    var exportButton = document.getElementById('creditalert-export-lines');
+    if (exportButton) {
+        exportButton.addEventListener('click', function () {
+            window.creditalertExportDialog(function (includePrivate, format) {
+                var setHidden = function (name, value) {
+                    var input = form.querySelector('input[type="hidden"][name="' + name + '"]');
+                    if (!input) {
+                        input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = name;
+                        form.appendChild(input);
+                    }
+                    input.value = value;
+                };
+                setHidden('search', '1');
+                setHidden('creditalert_export_all', '1');
+                if (includePrivate) {
+                    setHidden('include_private_tasks', '1');
+                }
+                if (format === 'csv') {
+                    setHidden('export_format', 'csv');
+                }
+                form.submit();
+            });
+        });
+    }
+});
 JS;
-        echo Html::scriptBlock($js);
-    }
-    echo "</div>";
-
-    echo "</div>"; // close creditalert_filter_credits
-
-    // Tickets filter (shown when mode is tickets)
-    $displayTickets = $filterMode === 'tickets' ? '' : 'display:none;';
-    $ticketIdsValue = Html::cleanInputText($ticketIdsRaw);
-    echo "<div class='row g-3' id='creditalert_filter_tickets' style='{$displayTickets}'>";
-    echo "<div class='col-12'>";
-    echo "<label class='form-label mb-1'>" . __('Liste des IDs de tickets (un par ligne)', 'creditalert') . "</label>";
-    echo "<textarea name='ticket_ids' class='form-control' rows='6' placeholder='59250&#10;59268&#10;59267&#10;...'>{$ticketIdsValue}</textarea>";
-    echo "<small class='text-muted'>" . __('Saisissez les IDs de tickets separes par des retours a la ligne, virgules ou espaces.', 'creditalert') . "</small>";
-    echo "</div>";
-    echo "</div>";
-
-    echo "<div class='row g-3'>";
-    echo "<div class='col-md-6'>";
-    echo "<div class='form-check mt-2'>";
-    echo "<input class='form-check-input' type='checkbox' name='show_other' id='creditalert_show_other' value='1'"
-        . ($showOther ? ' checked' : '') . ">";
-    echo "<label class='form-check-label' for='creditalert_show_other'>"
-        . __('Afficher autres tickets', 'creditalert') . "</label>";
-    echo "</div>";
-    echo "</div>";
-
-    echo "</div>";
-    echo "<div class='mt-3 text-end'>";
-    echo Html::submit(__('Rechercher', 'creditalert'), ['name' => 'search', 'class' => 'btn btn-primary']);
-    echo "</div>";
-    echo "</div></div></div>";
-    Html::closeForm();
+    echo Html::scriptBlock($js);
+    echo Html::scriptBlock($initTooltipsJs);
 
     // Collapse arrow: rotate chevron + remember state across reloads
     $js = <<<JS
@@ -845,57 +971,60 @@ JS;
     echo Html::scriptBlock($js);
 
     if (isset($_GET['search'])) {
-        // Validation depends on filter mode
-        $validSearch = false;
+        $validSearch = true;
         if ($filterMode === 'tickets') {
-            $validSearch = $entityId > 0 && !empty($selectedTicketIds);
-        } else {
-            $validSearch = $entityId > 0 && (!empty($selectedCredits) || $showOther);
+            if (empty($selectedTicketIds)) {
+                $validSearch = false;
+                echo "<div class='alert alert-warning'>" . $esc(__('Saisissez au moins un numéro de ticket.', 'creditalert')) . "</div>";
+            }
+        } elseif (empty($types) && empty($selectedCredits) && !$showOther) {
+            $validSearch = false;
+            echo "<div class='alert alert-warning'>"
+                . $esc(__('Saisissez au moins un type de crédit, ou choisissez une entité et au moins un crédit.', 'creditalert'))
+                . "</div>";
         }
 
-        if (!$validSearch) {
-            if ($filterMode === 'tickets') {
-                echo "<div class='alert alert-warning'>" . __('Veuillez selectionner une entite et saisir au moins un ID de ticket.', 'creditalert') . "</div>";
-            } else {
-                echo "<div class='alert alert-warning'>" . __('Veuillez selectionner une entite et au moins un credit.', 'creditalert') . "</div>";
-            }
-        } else {
-            // For ticket filter mode: check entity match and show warnings
+        // For ticket filter mode: check entity match and show warnings
+        $validTicketIds = [];
+        if ($validSearch && $filterMode === 'tickets') {
             $ticketFilterWarnings = [];
-            $validTicketIds = [];
-            if ($filterMode === 'tickets' && !empty($selectedTicketIds)) {
-                foreach ($selectedTicketIds as $tid) {
-                    $ticket = new Ticket();
-                    if (!$ticket->getFromDB($tid)) {
-                        $ticketFilterWarnings[] = sprintf(
-                            __('Ticket %d exclu de la liste : ticket introuvable.', 'creditalert'),
-                            $tid
-                        );
-                        continue;
-                    }
-                    $ticketEntityId = (int) ($ticket->fields['entities_id'] ?? 0);
-                    if (!in_array($ticketEntityId, $entityScope, true)) {
-                        $ticketFilterWarnings[] = sprintf(
-                            __('Ticket %d exclu de la liste : ne correspond pas a l\'entite selectionnee.', 'creditalert'),
-                            $tid
-                        );
-                        continue;
-                    }
-                    $validTicketIds[] = $tid;
+            foreach ($selectedTicketIds as $tid) {
+                $ticket = new Ticket();
+                if (!$ticket->getFromDB($tid)) {
+                    $ticketFilterWarnings[] = sprintf(
+                        __('Ticket %d exclu de la liste : ticket introuvable.', 'creditalert'),
+                        $tid
+                    );
+                    continue;
                 }
-                if (!empty($ticketFilterWarnings)) {
-                    echo "<div class='alert alert-info' style='margin-bottom:10px;'>";
-                    echo "<strong>" . __('Tickets exclus', 'creditalert') . " :</strong><ul class='mb-0 mt-1'>";
-                    foreach ($ticketFilterWarnings as $w) {
-                        echo "<li>" . Html::entities_deep($w) . "</li>";
-                    }
-                    echo "</ul></div>";
+                $ticketEntityId = (int) ($ticket->fields['entities_id'] ?? 0);
+                $inScope = !empty($entityScope)
+                    ? in_array($ticketEntityId, $entityScope, true)
+                    : Session::haveAccessToEntity($ticketEntityId);
+                if (!$inScope) {
+                    $ticketFilterWarnings[] = sprintf(
+                        !empty($entityScope)
+                            ? __('Ticket %d exclu de la liste : ne correspond pas aux entites choisies.', 'creditalert')
+                            : __('Ticket %d exclu de la liste : hors de vos entites.', 'creditalert'),
+                        $tid
+                    );
+                    continue;
                 }
-                if (empty($validTicketIds)) {
-                    echo "<div class='alert alert-warning'>" . __('Aucun ticket valide ne correspond a l\'entite selectionnee.', 'creditalert') . "</div>";
-                    $validSearch = false;
-                }
+                $validTicketIds[] = $tid;
             }
+            if (!empty($ticketFilterWarnings)) {
+                echo "<div class='alert alert-info' style='margin-bottom:10px;'>";
+                echo "<strong>" . $esc(__('Tickets exclus', 'creditalert')) . " :</strong><ul class='mb-0 mt-1'>";
+                foreach ($ticketFilterWarnings as $w) {
+                    echo "<li>" . $esc($w) . "</li>";
+                }
+                echo "</ul></div>";
+            }
+            if (empty($validTicketIds)) {
+                echo "<div class='alert alert-warning'>" . $esc(__('Aucun ticket valide ne correspond aux entites choisies.', 'creditalert')) . "</div>";
+                $validSearch = false;
+            }
+        }
 
         if ($validSearch) {
             $searchParams = Search::manageParams(PluginCreditalertConsumption::class, $_GET, false);
@@ -924,13 +1053,24 @@ JS;
                 $criteria = \Glpi\Search\Input\QueryBuilder::getDefaultCriteria(PluginCreditalertConsumption::class);
             }
 
-            $criteria[] = [
-                'link'       => 'AND',
-                'field'      => PluginCreditalertConsumption::OPT_ENTITY,
-                'searchtype' => 'under',
-                'value'      => $entityId,
-                '_hidden'    => true,
-            ];
+            // Entités choisies (chacune avec ses sous-entités) ; aucune : GLPI limite aux entités de la session
+            if (!empty($entityIds)) {
+                $entityCriteria = [];
+                foreach ($entityIds as $entityId) {
+                    $entityCriteria[] = [
+                        'link'       => 'OR',
+                        'field'      => PluginCreditalertConsumption::OPT_ENTITY,
+                        'searchtype' => 'under',
+                        'value'      => $entityId,
+                        '_hidden'    => true,
+                    ];
+                }
+                $criteria[] = [
+                    'link'     => 'AND',
+                    'criteria' => $entityCriteria,
+                    '_hidden'  => true,
+                ];
+            }
 
             if ($filterMode === 'tickets') {
                 // Ticket filter mode
@@ -989,92 +1129,117 @@ JS;
                 }
             }
 
+            // Types de crédit : le nom du crédit contient l'un des mots (les deux modes)
+            if (!empty($types)) {
+                $criteria[] = [
+                    'link'       => 'AND',
+                    'field'      => PluginCreditalertConsumption::OPT_CREDIT_TYPES,
+                    'searchtype' => 'equals',
+                    'value'      => implode(PluginCreditalertConsumption::TYPES_SEPARATOR, $types),
+                    'virtual'    => true,
+                    '_hidden'    => true,
+                ];
+            }
+
             if ($dateBegin !== '' || $dateEnd !== '') {
-                $dateCriteria = [];
-                $startValue = $dateBegin !== '' ? $dateBegin . ' 00:00:00' : '';
-                $endValue = $dateEnd !== '' ? $dateEnd . ' 23:59:59' : '';
-
-                if ($startValue !== '' && $endValue !== '') {
-                    $openGroup = [
-                        'link'     => 'OR',
-                        'criteria' => [
-                            [
-                                'link'      => 'AND',
-                                'field'     => PluginCreditalertConsumption::OPT_TICKET_DATE,
-                                'searchtype'=> 'morethan',
-                                'value'     => $startValue,
-                                '_hidden'   => true,
-                            ],
-                            [
-                                'link'      => 'AND',
-                                'field'     => PluginCreditalertConsumption::OPT_TICKET_DATE,
-                                'searchtype'=> 'lessthan',
-                                'value'     => $endValue,
-                                '_hidden'   => true,
-                            ],
-                        ],
-                        '_hidden'  => true,
-                    ];
-                    $endGroup = [
-                        'link'     => 'OR',
-                        'criteria' => [
-                            [
-                                'link'      => 'AND',
-                                'field'     => PluginCreditalertConsumption::OPT_TICKET_END_DATE,
-                                'searchtype'=> 'morethan',
-                                'value'     => $startValue,
-                                '_hidden'   => true,
-                            ],
-                            [
-                                'link'      => 'AND',
-                                'field'     => PluginCreditalertConsumption::OPT_TICKET_END_DATE,
-                                'searchtype'=> 'lessthan',
-                                'value'     => $endValue,
-                                '_hidden'   => true,
-                            ],
-                        ],
-                        '_hidden'  => true,
-                    ];
-                    $dateCriteria[] = $openGroup;
-                    $dateCriteria[] = $endGroup;
-                } elseif ($startValue !== '') {
-                    $dateCriteria[] = [
-                        'link'      => 'OR',
-                        'field'     => PluginCreditalertConsumption::OPT_TICKET_DATE,
-                        'searchtype'=> 'morethan',
-                        'value'     => $startValue,
-                        '_hidden'   => true,
-                    ];
-                    $dateCriteria[] = [
-                        'link'      => 'OR',
-                        'field'     => PluginCreditalertConsumption::OPT_TICKET_END_DATE,
-                        'searchtype'=> 'morethan',
-                        'value'     => $startValue,
-                        '_hidden'   => true,
-                    ];
-                } elseif ($endValue !== '') {
-                    $dateCriteria[] = [
-                        'link'      => 'OR',
-                        'field'     => PluginCreditalertConsumption::OPT_TICKET_DATE,
-                        'searchtype'=> 'lessthan',
-                        'value'     => $endValue,
-                        '_hidden'   => true,
-                    ];
-                    $dateCriteria[] = [
-                        'link'      => 'OR',
-                        'field'     => PluginCreditalertConsumption::OPT_TICKET_END_DATE,
-                        'searchtype'=> 'lessthan',
-                        'value'     => $endValue,
-                        '_hidden'   => true,
-                    ];
-                }
-
-                if (!empty($dateCriteria)) {
+                if ($dateScope === 'credits') {
+                    // Crédits dont la période recoupe les dates choisies
                     $criteria[] = [
-                        'link'     => 'AND',
-                        'criteria' => $dateCriteria,
-                        '_hidden'  => true,
+                        'link'       => 'AND',
+                        'field'      => PluginCreditalertConsumption::OPT_CREDIT_PERIOD,
+                        'searchtype' => 'equals',
+                        'value'      => $dateBegin . '|' . $dateEnd,
+                        'virtual'    => true,
+                        '_hidden'    => true,
                     ];
+                } else {
+                    // Tickets ouverts ou résolus entre les dates choisies
+                    $dateCriteria = [];
+                    $startValue = $dateBegin !== '' ? $dateBegin . ' 00:00:00' : '';
+                    $endValue = $dateEnd !== '' ? $dateEnd . ' 23:59:59' : '';
+
+                    if ($startValue !== '' && $endValue !== '') {
+                        $openGroup = [
+                            'link'     => 'OR',
+                            'criteria' => [
+                                [
+                                    'link'      => 'AND',
+                                    'field'     => PluginCreditalertConsumption::OPT_TICKET_DATE,
+                                    'searchtype'=> 'morethan',
+                                    'value'     => $startValue,
+                                    '_hidden'   => true,
+                                ],
+                                [
+                                    'link'      => 'AND',
+                                    'field'     => PluginCreditalertConsumption::OPT_TICKET_DATE,
+                                    'searchtype'=> 'lessthan',
+                                    'value'     => $endValue,
+                                    '_hidden'   => true,
+                                ],
+                            ],
+                            '_hidden'  => true,
+                        ];
+                        $endGroup = [
+                            'link'     => 'OR',
+                            'criteria' => [
+                                [
+                                    'link'      => 'AND',
+                                    'field'     => PluginCreditalertConsumption::OPT_TICKET_END_DATE,
+                                    'searchtype'=> 'morethan',
+                                    'value'     => $startValue,
+                                    '_hidden'   => true,
+                                ],
+                                [
+                                    'link'      => 'AND',
+                                    'field'     => PluginCreditalertConsumption::OPT_TICKET_END_DATE,
+                                    'searchtype'=> 'lessthan',
+                                    'value'     => $endValue,
+                                    '_hidden'   => true,
+                                ],
+                            ],
+                            '_hidden'  => true,
+                        ];
+                        $dateCriteria[] = $openGroup;
+                        $dateCriteria[] = $endGroup;
+                    } elseif ($startValue !== '') {
+                        $dateCriteria[] = [
+                            'link'      => 'OR',
+                            'field'     => PluginCreditalertConsumption::OPT_TICKET_DATE,
+                            'searchtype'=> 'morethan',
+                            'value'     => $startValue,
+                            '_hidden'   => true,
+                        ];
+                        $dateCriteria[] = [
+                            'link'      => 'OR',
+                            'field'     => PluginCreditalertConsumption::OPT_TICKET_END_DATE,
+                            'searchtype'=> 'morethan',
+                            'value'     => $startValue,
+                            '_hidden'   => true,
+                        ];
+                    } elseif ($endValue !== '') {
+                        $dateCriteria[] = [
+                            'link'      => 'OR',
+                            'field'     => PluginCreditalertConsumption::OPT_TICKET_DATE,
+                            'searchtype'=> 'lessthan',
+                            'value'     => $endValue,
+                            '_hidden'   => true,
+                        ];
+                        $dateCriteria[] = [
+                            'link'      => 'OR',
+                            'field'     => PluginCreditalertConsumption::OPT_TICKET_END_DATE,
+                            'searchtype'=> 'lessthan',
+                            'value'     => $endValue,
+                            '_hidden'   => true,
+                        ];
+                    }
+
+                    if (!empty($dateCriteria)) {
+                        $criteria[] = [
+                            'link'     => 'AND',
+                            'criteria' => $dateCriteria,
+                            '_hidden'  => true,
+                        ];
+                    }
                 }
             }
 
@@ -1082,17 +1247,32 @@ JS;
             $searchParams['hide_criteria'] = false;
             $_SESSION['glpisearch'][PluginCreditalertConsumption::class]['criteria'] = $searchParams['criteria'];
 
+            // Adresse de la recherche (pagination, tri, retour des actions de masse) : tout le formulaire
             $targetParams = [
                 'view'        => 'consumptions',
                 'search'      => 1,
-                'entities_id' => $entityId,
-                'date_begin'  => $dateBegin,
-                'date_end'    => $dateEnd,
-                'show_other'  => $showOther ? 1 : 0,
                 'filter_mode' => $filterMode,
+                'date_scope'  => $dateScope,
             ];
+            if (!empty($entityIds)) {
+                $targetParams['entities_id'] = $entityIds;
+            }
+            if (!empty($types)) {
+                $targetParams['types'] = $types;
+            }
+            if ($dateBegin !== '') {
+                $targetParams['date_begin'] = $dateBegin;
+            }
+            if ($dateEnd !== '') {
+                $targetParams['date_end'] = $dateEnd;
+            }
+            if ($showOther) {
+                $targetParams['show_other'] = 1;
+            }
             if ($filterMode === 'tickets') {
                 $targetParams['ticket_ids'] = $ticketIdsRaw;
+            } elseif (!empty($selectedCredits)) {
+                $targetParams['credits_id'] = $selectedCredits;
             }
             $searchParams['target'] = $CFG_GLPI['root_doc']
                 . '/plugins/creditalert/front/creditlist.php?' . http_build_query($targetParams);
@@ -1124,17 +1304,11 @@ JS;
                 }
             };
             $addHiddenCriteriaInputs($searchParams['criteria'], 'criteria');
-            $redirectParams = $targetParams;
-            if ($filterMode === 'credits') {
-                foreach ($selectedCredits as $cid) {
-                    $redirectParams['credits_id'][] = $cid;
-                }
-            }
-            $redirectUrl = $CFG_GLPI['root_doc']
-                . '/plugins/creditalert/front/creditlist.php?' . http_build_query($redirectParams);
+            $redirectUrl = $searchParams['target'];
 
+            // « Réaffecter crédit » travaille sur un seul client : proposé avec une seule entité choisie
             $specificActions = [];
-            if (Session::haveRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_CONFIG)) {
+            if ($singleEntityId > 0 && Session::haveRight(PluginCreditalertProfile::$rightname, PluginCreditalertProfile::RIGHT_CONFIG)) {
                 $specificActions[PluginCreditalertConsumption::class . MassiveAction::CLASS_ACTION_SEPARATOR . 'reassigncredit']
                     = __('Reaffecter credit', 'creditalert');
             }
@@ -1147,9 +1321,9 @@ JS;
             $searchParams['massiveactionparams'] = [
                 'specific_actions' => $specificActions,
                 'extraparams'      => [
-                    'entities_id' => $entityId,
+                    'entities_id' => $singleEntityId,
                     'hidden' => [
-                        'entities_id' => $entityId,
+                        'entities_id' => $singleEntityId,
                         'show_other'  => $showOther ? 1 : 0,
                         'redirect'    => $redirectUrl,
                     ],
@@ -1167,95 +1341,6 @@ JS;
                 PluginCreditalertConsumption::OPT_TICKET_DATE,
             ];
 
-            // Export-all toolbar (real button, not JS-injected)
-            $exportAllParams = $_GET;
-            unset(
-                $exportAllParams['creditalert_export'],
-                $exportAllParams['creditalert_export_all'],
-                $exportAllParams['include_private_tasks'],
-                $exportAllParams['export_format']
-            );
-            $exportAllParams['creditalert_export_all'] = 1;
-            $exportAllUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/creditlist.php';
-            if (!empty($exportAllParams)) {
-                $exportAllUrl .= '?' . http_build_query($exportAllParams);
-            }
-            echo "<div class='d-flex justify-content-end align-items-center mb-2'>";
-            echo "<button type='button' id='creditalert-export-all-btn' class='btn btn-sm btn-secondary'>";
-            echo "<i class='ti ti-download'></i> " . __('Exporter toutes les pages', 'creditalert') . "</button>";
-            echo "</div>";
-
-            // Export-all dialog via the native GLPI modal helper
-            $dlgRand = mt_rand();
-            $dlgSelectHtml = Dropdown::showYesNo('include_private_tasks', 0, -1, [
-                'rand'    => $dlgRand,
-                'display' => false,
-            ]);
-            $dlgSelectId        = Html::cleanId('dropdown_include_private_tasks' . $dlgRand);
-            $dlgFormatHtml = Dropdown::showFromArray('creditalert_export_format', [
-                'xlsx' => __('Excel (XLSX)', 'creditalert'),
-                'csv'  => __('CSV', 'creditalert'),
-            ], [
-                'value'   => 'xlsx',
-                'rand'    => $dlgRand,
-                'display' => false,
-            ]);
-            $dlgFormatId        = Html::cleanId('dropdown_creditalert_export_format' . $dlgRand);
-            $exportAllUrlJson   = json_encode($exportAllUrl, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $dlgTitleJson       = json_encode(__('Exporter toutes les pages', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $dlgLabelJson       = json_encode(__('Inclure les taches privees', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $dlgFormatLabelJson = json_encode(__('Format d\'export', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $dlgSelectHtmlJson  = json_encode($dlgSelectHtml, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $dlgFormatHtmlJson  = json_encode($dlgFormatHtml, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $dlgSelectIdJson    = json_encode($dlgSelectId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $dlgFormatIdJson    = json_encode($dlgFormatId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $dlgCancelJson      = json_encode(__('Annuler', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $dlgExportJson      = json_encode(__('Exporter', 'creditalert'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-            $js = <<<JS
-(function() {
-  var btn = document.getElementById('creditalert-export-all-btn');
-  if (!btn) {
-    return;
-  }
-  var exportUrl = {$exportAllUrlJson};
-  btn.addEventListener('click', function() {
-    glpi_html_dialog({
-      title: {$dlgTitleJson},
-      body: "<div class='d-flex align-items-center justify-content-center gap-2 mb-3'>"
-          + "<label class='form-label mb-0' for='" + {$dlgSelectIdJson} + "'>" + {$dlgLabelJson} + "</label>"
-          + {$dlgSelectHtmlJson}
-          + "</div>"
-          + "<div class='d-flex align-items-center justify-content-center gap-2'>"
-          + "<label class='form-label mb-0' for='" + {$dlgFormatIdJson} + "'>" + {$dlgFormatLabelJson} + "</label>"
-          + {$dlgFormatHtmlJson}
-          + "</div>",
-      buttons: [
-        {
-          label: {$dlgCancelJson},
-          class: 'btn-secondary'
-        },
-        {
-          label: "<i class='ti ti-download'></i> " + {$dlgExportJson},
-          class: 'btn-primary',
-          click: function() {
-            var sel = document.getElementById({$dlgSelectIdJson});
-            var fmt = document.getElementById({$dlgFormatIdJson});
-            var url = new URL(exportUrl, window.location.origin);
-            if (sel && sel.value === '1') {
-              url.searchParams.set('include_private_tasks', '1');
-            }
-            if (fmt && fmt.value === 'csv') {
-              url.searchParams.set('export_format', 'csv');
-            }
-            window.location.href = url.toString();
-          }
-        }
-      ]
-    });
-  });
-})();
-JS;
-            echo Html::scriptBlock($js);
 
             echo "<div class='search_page row'>";
             echo "<div class='col search-container' data-glpi-search-container>";
@@ -1268,7 +1353,7 @@ JS;
                 $hiddenCriteriaInputs[$name] = (string) $value;
             }
             if (!empty($hiddenCriteriaInputs)) {
-                $hiddenJson = json_encode($hiddenCriteriaInputs, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+                $hiddenJson = $json($hiddenCriteriaInputs);
                 $js = <<<JS
 (function() {
   var hidden = {$hiddenJson};
@@ -1318,7 +1403,7 @@ JS;
                 $exportIds = array_keys($exportData['data']['items'] ?? []);
                 $exportIds = $normalizeIntList($exportIds);
                 if (empty($exportIds)) {
-                    echo "<div class='alert alert-warning'>" . __('Aucun element selectionne.', 'creditalert') . "</div>";
+                    echo "<div class='alert alert-warning'>" . $esc(__('Aucun element selectionne.', 'creditalert')) . "</div>";
                 } else {
                     $_SESSION['plugin_creditalert']['export_consumptions'] = $exportIds;
                     $_SESSION['plugin_creditalert']['export_include_private'] = !empty($_GET['include_private_tasks']) ? 1 : 0;
@@ -1333,7 +1418,7 @@ JS;
 
             if ($triggerExport) {
                 $exportUrl = $CFG_GLPI['root_doc'] . '/plugins/creditalert/front/consumptions.export.php';
-                echo "<iframe src='" . Html::cleanInputText($exportUrl) . "' style='display:none' aria-hidden='true'></iframe>";
+                echo "<iframe src='" . $esc($exportUrl) . "' style='display:none' aria-hidden='true'></iframe>";
                 $js = <<<JS
 (function() {
   try {
@@ -1357,8 +1442,9 @@ JS;
                 echo Html::scriptBlock($js);
             }
         } // end if ($validSearch)
-        } // end else (!$validSearch)
     } // end if (isset search)
+
+    echo "</div></div>"; // col, creditalert-layout row
 } // end else (consumptions view)
 
 Html::footer();

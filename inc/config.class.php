@@ -301,7 +301,12 @@ class PluginCreditalertConfig extends CommonDBTM
             ]) as $row) {
                 $columns[$row['column_name']] = true;
             }
-            if (!isset($columns['has_consumption']) || !isset($columns['ticket_end_date'])) {
+            if (
+                !isset($columns['has_consumption'])
+                || !isset($columns['ticket_end_date'])
+                || !isset($columns['credit_begin_date'])
+                || !isset($columns['credit_end_date'])
+            ) {
                 $needsRefresh = true;
             }
             if (!$needsRefresh) {
@@ -354,6 +359,14 @@ class PluginCreditalertConfig extends CommonDBTM
         }
 
         $endDateExpr = $fieldEndDate !== '' ? "c.`{$fieldEndDate}`" : 'NULL';
+        // Date de début du crédit : pas de réglage dédié, première colonne connue de la table des crédits.
+        $beginDateExpr = 'NULL';
+        foreach (['begin_date', 'date_begin', 'start_date'] as $candidate) {
+            if ($DB->fieldExists($creditTable, $candidate)) {
+                $beginDateExpr = "c.`{$candidate}`";
+                break;
+            }
+        }
         $activeExpr = $fieldIsActive !== '' ? "c.`{$fieldIsActive}`" : '1';
         $quantitySoldExpr = "c.`{$fieldSold}`";
         $quantityUsedExpr = "COALESCE(SUM(ct.`{$fieldUsed}`), 0)";
@@ -423,6 +436,8 @@ class PluginCreditalertConfig extends CommonDBTM
                 t.solvedate AS ticket_solvedate,
                 t.closedate AS ticket_closedate,
                 COALESCE(t.solvedate, t.closedate) AS ticket_end_date,
+                {$beginDateExpr} AS credit_begin_date,
+                {$endDateExpr} AS credit_end_date,
                 1 AS has_consumption
             FROM `{$consumptionTable}` ct
             LEFT JOIN `{$creditTable}` c ON c.id = ct.`{$fieldFkUsage}`
@@ -442,6 +457,8 @@ class PluginCreditalertConfig extends CommonDBTM
                 t.solvedate AS ticket_solvedate,
                 t.closedate AS ticket_closedate,
                 COALESCE(t.solvedate, t.closedate) AS ticket_end_date,
+                NULL AS credit_begin_date,
+                NULL AS credit_end_date,
                 0 AS has_consumption
             FROM `glpi_tickets` t
             WHERE NOT EXISTS (

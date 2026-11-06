@@ -11,7 +11,7 @@ class PluginCreditalertProfile extends Profile
 
     public static function getTypeName($nb = 0)
     {
-        return _n('Credit alert', 'Credit alerts', $nb, 'creditalert');
+        return _n('Gestion des crédits', 'Gestion des crédits', $nb, 'creditalert');
     }
 
     public static function getIcon()

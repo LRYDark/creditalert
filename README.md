@@ -1,6 +1,6 @@
-# CreditAlert
+# Gestion des crédits (creditalert)
 
-Plugin GLPI de surveillance des crédits du plugin `credit`: seuils d'alerte, vues de consommation/synthèse, exports CSV et notifications email (avec gestion anti-duplication) pour anticiper les dépassements ou crédits faibles.
+Plugin GLPI de gestion des crédits du plugin `credit` (anciennement « Credit Alert », clé technique `creditalert`) : seuils d'alerte, vues de consommation/synthèse, exports CSV et notifications email (avec gestion anti-duplication) pour anticiper les dépassements ou crédits faibles.
 
 Le plugin sert à transformer des données de crédits en alertes exploitables par l'équipe (commerciale, support, gestion, supervision).
 
@@ -12,7 +12,10 @@ Le plugin sert à transformer des données de crédits en alertes exploitables p
   ordinateur, panneau pleine largeur ancré en bas de l'écran sur téléphone).
 - Déclenche des alertes selon des seuils (globaux et par entité).
 - Permet des overrides par entité.
-- Exporte les données en CSV.
+- Exporte les données en CSV ou XLSX, avec les dates du crédit imputé (début, fin) sur chaque ligne.
+- Recherche les consommations par type de crédit (le nom du crédit contient un mot : PREVENTIVE, ANTIVIRUS…),
+  sur un, plusieurs ou tous les clients, avec des dates appliquées aux tickets ou à la période du crédit.
+- Enregistre les recherches avec les recherches sauvegardées de GLPI (bouton, panneau, recherche par défaut).
 - Envoie des notifications par email via cron GLPI.
 - S'adapte aux schémas du plugin `credit` via un mapping configurable des tables/champs.
 
